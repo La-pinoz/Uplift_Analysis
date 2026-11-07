@@ -513,3 +513,206 @@ This check is descriptive and has no automatic rule. The table is `outputs/table
 - **Coverage:** the rule named 0 to 22 days, but no treated development customer has a value of 22.
 
 **Project owner's review:** approved on 2026-11-08 to proceed to Phase 4. The step at 11 to 13 days stays documented as unexplained. The review does not rule out overlap with the outcome window.
+
+## Phase 4 status
+
+**Rules locked, not yet run.** Phase 4 builds the T-Learner in `notebooks/03_response_vs_uplift.ipynb`: `m1(X) = P(target = 1 given X, treatment_flg = 1)`, `m0(X) = P(target = 1 given X, treatment_flg = 0)` and `tau(X) = m1(X) - m0(X)`. It produces scores for every labelled customer from models that did not train on them. It does not evaluate targeting.
+
+An individual `tau(X)` is **Estimated from the model**. It is not a measured effect on that customer, and a negative score does not show that the SMS harmed anyone.
+
+## Rules for Phase 4
+
+These rules were written before any Phase 4 score existed. The commit that adds this section is the record of that order, and results are added in a later commit.
+
+### Data
+
+| Item | Rule |
+|---|---|
+| Development customers | 160,031: 79,985 treated and 80,046 control, all sorted by `client_id` |
+| Control fold sizes | 16,009, 16,009, 16,009, 16,009 and 16,010. Treated fold sizes are as in Phase 3 |
+| Development labels | One query, filtered to `split = 'development'`. It asserts that no holdout `client_id` is present |
+| Holdout customers | 40,008. One query reads `client_id` and features only, from `customer_features.parquet` and `splits.parquet`. It does not touch `uplift_train.parquet`, and it asserts that neither `treatment_flg` nor `target` is present |
+| Features | The locked list of 39, in stored order |
+| Order in the notebook | Phase 4 runs after every Phase 3 cell, so Phase 3 still sees only treated development labels |
+
+**Boundary with evaluation:** Phase 4 never compares `tau` with `target`, on any rows. `target` is used only to train the models, to assess `m0` as a purchase predictor on control rows, and to calculate the development interval for the mean `tau` check below. All of these use development rows only. Whether uplift targeting works is left to the evaluation phase.
+
+### Models
+
+| Item | Rule |
+|---|---|
+| Setup | The Phase 3 locked setup for both models: `max_depth` 4, `min_child_weight` 10, 185 trees, the fixed settings and seed 42 |
+| Out-of-fold scoring | In each fold, train `m1` on the treated training rows and `m0` on the control training rows, then score every validation row in both arms with both models |
+| Match with Phase 3 | `m1` out-of-fold scores on treated rows must match `phase3_m1_scores` within 1e-9, or the notebook stops |
+| No in-sample scoring | Assert that each development row is scored once, in its own fold, by models whose training rows exclude it |
+| Refit | Train `m1` on all 79,985 treated and `m0` on all 80,046 control development customers, at 185 trees, then score the holdout |
+| Recalibration | None by default, as in Phase 3. `tau` is the plain difference of the two scores |
+
+### Checks on `m0`
+
+`m0` gets the same reports and thresholds as `m1`, on pooled out-of-fold scores for the 80,046 control development customers.
+
+| Check | Rule | If triggered |
+|---|---|---|
+| Performance | AUC and log-loss, each with a percentile 95% interval from 2,000 bootstrap resamples, stratified on `target`, seed 42, plus a per-fold table | Report |
+| Baseline | Log-loss must be below that of predicting each training fold's control purchase rate | Stop and investigate |
+| Largest gain share | At least 0.50, averaged across the five fold models | Stop and investigate |
+| Largest single-feature AUC | At least 0.80, using `max(AUC, 1 - AUC)` and leaving out null rows | Stop and investigate |
+| Overall AUC | At least 0.90 | Stop and investigate |
+| Calibration | Ten equal-count bins, slope and intercept. Flag a slope outside 0.9 to 1.1 or any bin off by more than 2 points | Report and proceed, with no recalibration, unless the project owner decides otherwise |
+
+**Left out on purpose:** a recency table for control customers, because comparing it with the treated table would show the SMS effect by recency before the segment rules are locked, and a tree-count curve for `m0`, because the setup is locked and no action could follow.
+
+### Mean `tau`
+
+Mean `tau` must fall within the **development interval**, on out-of-fold rows and separately on holdout rows. Nothing is rounded, and both sides are compared as probabilities.
+
+**Development interval:** the unpooled Wald 95% interval for the treated-minus-control purchase rate difference, using `scipy.stats.norm.ppf(0.975)` as in Phase 1, on the 160,031 development customers only. The notebook calculates it, and the Stage 2 results record it. No holdout outcome enters this check.
+
+If either mean falls outside, stop and look for a pipeline bug, then bring the result to the project owner. Nothing is corrected automatically, and any fix is recorded in this log.
+
+The split was stratified on treatment by target, so the development difference should be almost identical to the Phase 1 difference. With fewer customers, the interval should be about 12% wider.
+
+**Limit:** this is a rough check. The interval reflects sampling uncertainty in the development difference, not pipeline error, so a bug that shifts mean `tau` by a few tenths of a point could pass, and one that only reorders scores does not move the mean at all. The row alignment assertions under "Saved files" cover reordering.
+
+### Arm balance
+
+Evaluating targeting compares treated and control customers inside a score-selected group, so selecting on a score must not also select on arm. This check uses `treatment_flg` but not `target`, on out-of-fold rows.
+
+| Measure | Applies to | Stop and investigate if |
+|---|---|---|
+| Absolute standardised mean difference between arms | `m1`, `m0`, `tau` | At least 0.05 |
+| Treated SD divided by control SD | `m1`, `m0`, `tau` | Outside 0.9 to 1.1 |
+| Treated share of the top 20% | `m1`, `tau` | Outside 48% to 52%, against 49.98% overall |
+
+The top 20% comes from `select_top_k`, described below, and is 32,006 customers here. These thresholds are judgement calls. The check catches scores that differ by arm. It cannot catch scores misaligned independently of arm, or reliably catch in-sample scoring, and those have their own assertions.
+
+### Top-K selection
+
+Every top-K group comes from one shared function, `select_top_k(client_ids, scores, percent)` in `notebooks/targeting.py`. The Phase 4 balance check and score reports use it, and so do the Phase 5 balance check and Uplift@K.
+
+It has two steps, also available separately: `score_ranks(client_ids, scores)` checks the inputs and ranks each customer, and `select_by_rank(ranks, percent)` applies the group size.
+
+| Item | Rule |
+|---|---|
+| Sort order | Score descending, then `client_id` ascending for ties |
+| Group size | `percent x n / 100` rounded to the nearest whole number, with exact halves rounded up, calculated in whole-number arithmetic |
+| Sizes at 20% | 32,006 of the 160,031 out-of-fold rows and 8,002 of the 40,008 holdout rows |
+| Rejected inputs | IDs that are not strings, including nulls; duplicate IDs; scores that are not finite; mismatched lengths; a percent that is not a whole number from 1 to 100; and a group of no customers |
+| Bootstrap resamples | A resample repeats customers, which `select_top_k` rejects. Each one uses `select_by_rank` on the resampled ranks, so the same order and size rule apply at the resample's size |
+| Use in a notebook | The setup cell adds `notebooks/` to `sys.path`, and known-answer checks on the function run first, including both sizes above |
+
+**Other shared code:** Phases 4 and 5 both need the freeze and arm-balance checks, so these also go in `notebooks/targeting.py`. They are added in Stage 2, with known-answer checks, and neither phase keeps its own copy.
+
+| Function | What it does |
+|---|---|
+| `holdout_score_hash(client_ids, m1_scores, m0_scores)` | The exact SHA-256 defined under "Holdout score freeze" |
+| `check_freeze(recorded_hash, current_hash, reference, client_ids, expected_client_ids, m1_scores, m0_scores, allow_first_run)` | Applies the freeze state table and returns its result. Phase 4 allows a first run, and Phase 5 does not |
+| `arm_balance(client_ids, treatment, scores)` | The three arm-balance measures, with the top 20% from `select_top_k` |
+
+**Comparing with scikit-uplift:** in version 0.5.1, `uplift_at_k` with a fractional `k` rounds down with `int(n * k)`, giving 8,001 holdout rows at 20%, and its reversed sort puts tied rows in the opposite order. It also rejects a whole-number `k` at or above the row count. The plan's cross-check must therefore pass the `select_top_k` group size as a whole-number `k`, allow for ties, and cover budgets below 100% only.
+
+### Score reports
+
+These are report only.
+
+| Report | Rows |
+|---|---|
+| Histogram of `tau`, with minimum, maximum and the 1st, 5th, 10th, 25th, 50th, 75th, 90th, 95th and 99th percentiles | Out-of-fold and holdout |
+| Share of customers with `tau` below zero | Out-of-fold and holdout |
+| Spearman correlation of `m1` and `tau`, with no interval | Pooled out-of-fold, each fold and holdout |
+| Mean and SD of `tau`, share below zero, and share of the pooled top 20% of `tau`, from `select_top_k` | Each fold |
+
+**Flag for the project owner:** out-of-fold scores come from five different model pairs, so one fold could dominate a pooled ranking. If any fold's share of the pooled top 20% is outside 15% to 25%, bring it to the project owner before the evaluation phase. The notebook does not stop.
+
+### Saved files
+
+| File | Contents | In Git |
+|---|---|---|
+| `data/processed/scores_oof.parquet` | `client_id`, `fold`, `m1_score`, `m0_score`, `tau` | No |
+| `data/processed/scores_holdout.parquet` | `client_id`, `m1_score`, `m0_score`, `tau` | No |
+| `models/m1_refit.ubj`, `models/m0_refit.ubj` | The two refit models. Fold models are not saved | No |
+| `outputs/tables/holdout_scores_reference.csv` | `m1_score` and `m0_score` at 6 decimals, in sorted `client_id` order, with no labels or client IDs | Yes, with the Stage 2 results, before the evaluation phase |
+
+- **Types:** scores stay as XGBoost's 32-bit values, and `tau` is their exact 64-bit difference.
+- **No labels:** neither score file holds `treatment_flg` or `target`.
+- **Coverage:** assert that all 200,039 customers appear exactly once across the two score files.
+- **Row alignment:** reload each saved score file, join it to the features by `client_id`, and rescore with both models. The result must equal the saved scores exactly. Neither mean `tau` nor arm balance can catch scores attached to the wrong customer.
+  - **Out-of-fold rows:** rescored in the same run, in both arms, before the fold models are discarded, because they are not saved.
+  - **Holdout rows:** rescored from the saved refit models, reloaded from the staging folder described under "Holdout score freeze".
+- **`tau`:** every load of a score file, in Phase 4 and Phase 5, asserts that `tau` equals the 64-bit `m1_score` minus the 64-bit `m0_score` exactly. The freeze and the rescore cover only the two model scores, and `tau` is what gets ranked.
+
+### Holdout score freeze
+
+The exact SHA-256 of the holdout scores is recorded in this log. It is calculated over UTF-8 text with one line per customer, in ascending `client_id` order: `client_id,m1,m0` followed by `\n`. `m1` and `m0` are the lowercase hex of the 32-bit big-endian float scores, so values must be cast to 32 bits before hashing. `tau` follows from those two scores.
+
+**Order within a run,** so a stop never overwrites existing files:
+
+1. Score the holdout in memory, run every stop check and compare with the freeze record.
+2. Write the score files and refit models to a staging folder, `data/processed/phase4_staging/`, and run the row alignment assertions on those copies.
+3. Move them to their final paths. On a first run only, write the reference file last.
+
+A rerun never changes the reference file or the recorded hash, so every run is measured against the same committed record and differences cannot build up. A warned run's scores do replace the local score files, because a clean environment has none.
+
+The states below are tested in this order, and the first match applies.
+
+| State | Action |
+|---|---|
+| `client_id` values are not exactly the sorted holdout IDs in `splits.parquet` | Stop and investigate. The reference file has no IDs and is compared by position, so this check protects that comparison |
+| No recorded hash and no reference file | First run. Once every check passes, write the reference file and report the hash for this log |
+| A reference file with no recorded hash | Stop. This can only arise before the Stage 2 commit. Delete the uncommitted file and rerun as a first run |
+| A recorded hash with no reference file | Stop and investigate |
+| The row count differs from the reference file | Stop and investigate |
+| The recorded hash matches | Proceed |
+| The hash differs, and the largest absolute difference from the reference file in `m1_score` or `m0_score` is at most 1e-5 | Warn and proceed |
+| The difference is larger | Stop and investigate |
+
+**Replacing the record:** before any holdout outcome is opened, the hash and reference file may be replaced only for a fix the project owner approves. This log then records the old hash, the new hash and the reason, in a commit. After a holdout outcome is opened, they are never replaced.
+
+**Why not a rounded hash:** hashes have no tolerance. One score crossing a rounding boundary changes the whole hash, so a harmless numerical difference would almost certainly stop the run.
+
+**Limits:**
+
+- **Tolerance:** 1e-5 allows for tiny numerical differences, and it has not been tested across machines. Different hardware could change a split choice and move scores by more than that, which would stop the run. A clean rerun on another machine is therefore possible but not guaranteed to pass. After a warning, `tau` can differ by up to 2e-5, which can change who falls just inside a top-K group, so results from those scores could differ slightly from a run on the recorded ones.
+- **Meaning:** the freeze shows whether holdout scores changed from the committed record. It does not show why they changed.
+
+### Order of work
+
+1. **Stage 1:** add these rules to this log, ending at a commit.
+2. **Stage 2:** after that commit, build and run the Phase 4 cells, and record the results and the hash here. A second full run must then match the recorded hash. Commit the results with the reference file before the evaluation phase.
+
+## Rules carried into Phase 5
+
+These are written now because they follow from Phase 4 choices, and they apply in this order before any holdout outcome is computed.
+
+1. **Holdout score freeze:** `scores_holdout.parquet` must pass the freeze rule above when it is first loaded, because the results depend on the frozen scores and that file is not in Git. Phase 5 only compares. A missing hash or reference file is a stop rather than a first run, and it never writes or replaces either.
+2. **Arm balance:** the check above runs again on holdout scores, with the same measures and thresholds. Phase 4 does not load holdout `treatment_flg`, so this is the first check of the holdout arms. The query for it reads `treatment_flg` but not `target`. The top 20% comes from `select_top_k` and is 8,002 customers.
+
+If either triggers, stop and investigate before opening any holdout outcome.
+
+**Same selection rule:** Uplift@K at every budget must select customers with `select_top_k`, so at the 20% budget the group checked for balance is the group evaluated. This balance check does not cover the other budgets.
+
+## Future work
+
+Ideas kept out of the frozen scope, to carry into the README's "Future work" section:
+
+- **Product features:** moved here in Phase 2, for the reasons in "Where Phase 2 departs from the plan".
+- **Ranking stability across fold model pairs:** the five fold pairs could score the same holdout customers, to measure how much `tau` rankings change with the training rows. This adds no validity fix, so the project owner kept it out of Phase 4.
+
+## For the README
+
+When the README is written, it must state that `outputs/tables/holdout_scores_reference.csv` holds label-free, ID-free model scores and serves as the holdout freeze record.
+
+## Where Phase 4 departs from the plan
+
+| Plan | This analysis | Why |
+|---|---|---|
+| Score the holdout without opening its evaluation results | Holdout scoring loads features only, with no labels | No label is needed to score, and a query that never touches the label file is easy to defend |
+| Check that mean `tau` is broadly close to the ATE | Mean `tau` must fall within the same interval calculated on development rows only, or the notebook stops | "Broadly close" needed a test fixed in advance, and this one uses no holdout outcome |
+| Calibration report on `m0`, from the Phase 3 rules | `m0` also gets the performance report, baseline stop and leakage stops | `tau` depends equally on both models |
+| No arm-balance check on scores | Added on out-of-fold rows, and carried into Phase 5 for holdout rows | This protects validity: selecting on a score must not also select on arm |
+| Review the score distribution and rank correlation | Reports fixed in advance, with a per-fold table and one flag | Out-of-fold scores come from five model pairs, so a pooled ranking could favour one fold |
+| Save models | Only the two refit models are saved | Fold models can be regenerated, and their scores are already saved |
+| Not in the plan | Holdout score hash and a committed reference file | Shows whether holdout scores changed before the evaluation, while tolerating tiny numerical differences on a rerun |
+| Not in the plan | Assertions that saved scores match a rescore joined by `client_id` | Scores attached to the wrong customer would pass every other check |
+| Code lives in SQL files and five numbered notebooks | Adds one helper file, `notebooks/targeting.py`, holding top-K selection and the freeze and arm-balance checks. It is not a package | Two notebooks need the same rules, and a second copy could drift |
