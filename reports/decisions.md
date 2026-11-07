@@ -325,7 +325,7 @@ All values are **Measured** from `notebooks/02_feature_engineering.ipynb`.
 
 ## Phase 3 status
 
-**Rules locked, not yet run.** Phase 3 builds the conventional "likely to purchase" ranking, `m1(X) = P(target = 1 given X, treatment_flg = 1)`, in `notebooks/03_response_vs_uplift.ipynb`. It produces the locked model setup and its metrics. It saves no model and uses no control or holdout rows.
+**Complete, apart from the project owner's review of the recency check.** Phase 3 builds the conventional "likely to purchase" ranking, `m1(X) = P(target = 1 given X, treatment_flg = 1)`, in `notebooks/03_response_vs_uplift.ipynb`. It produces the locked model setup and its metrics. It saves no model and uses no control or holdout rows. Results are in "Phase 3 results".
 
 ## Rules for Phase 3
 
@@ -435,3 +435,81 @@ In the same synthetic-data check, repeating a fit and truncating a longer model 
 | Check AUC, log-loss and calibration | Adds intervals, a baseline with a stop rule, and calibration flags with a default action | The plan gave no failure condition |
 | Review feature importance for anything suspicious | Three stop thresholds and a descriptive recency check | "Looks like leakage" needed a test fixed in advance |
 | Calibration check on the response model | The same report also runs on `m0` in Phase 4 | `tau(X)` depends on both models |
+
+## Phase 3 results
+
+All values are **Measured** from `notebooks/03_response_vs_uplift.ipynb` on the 79,985 treated development customers, and the tables are in `outputs/tables/`. Control and holdout labels were not loaded.
+
+### Locked setup
+
+**`max_depth` 4, `min_child_weight` 10, 185 trees**, with the fixed settings listed in the rules above. Phase 4 uses this setup for both `m1` and `m0`.
+
+| `max_depth` | `min_child_weight` | Trees | Mean log-loss | Difference from best | SE of difference | Eligible |
+|---:|---:|---:|---:|---:|---:|---|
+| 2 | 10 | 730 | 0.53492 | +0.00037 | 0.00012 | No |
+| 2 | 100 | 726 | 0.53496 | +0.00041 | 0.00014 | No |
+| 3 | 10 | 320 | 0.53485 | +0.00030 | 0.00011 | No |
+| 3 | 100 | 345 | 0.53485 | +0.00030 | 0.00014 | No |
+| **4** | **10** | **185** | **0.53455** | **Best** | | **Yes** |
+| 4 | 100 | 214 | 0.53473 | +0.00018 | 0.00015 | No |
+| 6 | 10 | 113 | 0.53480 | +0.00025 | 0.00019 | No |
+| 6 | 100 | 126 | 0.53477 | +0.00022 | 0.00016 | No |
+
+**How to read it:** no simpler setting came within one standard error, so the rule chose the best setting itself. Each gap exceeds its rough standard error but is very small, at most 0.0004, and the best setting does not win every fold. No setting reached the 1,500-tree cap, so no rerun was needed.
+
+### Performance
+
+| Measure | Value | 95% CI |
+|---|---:|---:|
+| AUC | 0.7801 | 0.7769 to 0.7832 |
+| Log-loss | 0.5346 | 0.5317 to 0.5375 |
+| Baseline log-loss | 0.6554 | 0.6554 to 0.6554 |
+| Log-loss minus baseline | -0.1209 | -0.1237 to -0.1179 |
+
+The stop rule was not triggered. Fold AUCs run from 0.7738 to 0.7864.
+
+**Limits of the intervals:** they capture uncertainty from the evaluation sample, not from refitting the models. The baseline's interval is almost zero-width by construction, because stratifying on `target` fixes the number of buyers and non-buyers in every resample and the baseline gives each group nearly the same loss.
+
+**What this does not show:** these metrics describe prediction of purchase among treated customers. They say nothing about whether the SMS changed anyone's behaviour.
+
+### Calibration
+
+| Measure | Result | Flag |
+|---|---:|---|
+| Slope | 1.0067 | Not raised |
+| Intercept | -0.0036 | No threshold set |
+| Largest bin gap | 0.96 points, in bin 4 | Not raised |
+
+Nothing was recalibrated. The tenth bin has a mean predicted rate of 96.1% and an observed rate of 96.5%.
+
+### Leakage review
+
+| Check | Result | Stop threshold | Triggered |
+|---|---:|---:|---|
+| Largest gain share | 0.2779, `txn_count_60d` | At least 0.50 | No |
+| Largest single-feature AUC | 0.7552, `txn_count_60d` | At least 0.80 | No |
+| Overall out-of-fold AUC | 0.7801 | At least 0.90 | No |
+
+The strongest features all measure purchase frequency or recency. Express points are weak: their largest gain share is 0.0079, and their largest single-feature AUC is 0.5144.
+
+### Purchase rate by recency
+
+This check is descriptive and has no automatic rule. The table is `outputs/tables/response_recency.csv`, and the plot is `outputs/figures/response_recency.png`.
+
+| Days since last purchase | Customers | Purchase rate | 95% CI |
+|---:|---:|---:|---:|
+| 0 | 14,165 | 84.5% | 83.9% to 85.1% |
+| 1 | 8,752 | 79.9% | 79.1% to 80.8% |
+| 2 | 7,423 | 75.3% | 74.4% to 76.3% |
+| 3 | 7,335 | 68.7% | 67.7% to 69.8% |
+| 10 | 3,666 | 44.6% | 43.0% to 46.2% |
+| 11 | 2,016 | 49.1% | 46.9% to 51.2% |
+| 12 | 1,448 | 49.3% | 46.7% to 51.9% |
+| 13 | 1,254 | 48.8% | 46.0% to 51.6% |
+| 14 | 1,632 | 41.5% | 39.1% to 43.9% |
+
+- **At 0 and 1 days:** the rate falls by about 4.6 points a day to 2 days, then by 6.6 points to 3 days, with no sharp jump at 0 or 1 days. This pattern does not suggest that the outcome window overlaps the end of the purchase history, but it cannot rule that out.
+- **At 11 to 13 days:** the rate steps up by about 4 points and then down by about 7, and the intervals at 10 and 11 days do not overlap. These customers last bought from 2019-03-05 to 2019-03-07, just before International Women's Day on 2019-03-08, a public holiday in Russia. A holiday effect is an inference, not something this data establishes. The step is far from the cutoff, so it does not suggest window overlap.
+- **Coverage:** the rule named 0 to 22 days, but no treated development customer has a value of 22.
+
+**Project owner's review:** pending.

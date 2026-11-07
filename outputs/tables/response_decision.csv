@@ -1,0 +1,7 @@
+check,measured,threshold,triggered,action_if_triggered
+Log-loss below baseline,0.53455 vs 0.65540,Stop if not below,False,Stop
+Largest gain share (txn_count_60d),0.2779,>= 0.5,False,Stop
+Largest single-feature AUC (txn_count_60d),0.7552,>= 0.8,False,Stop
+Overall out-of-fold AUC,0.7801,>= 0.9,False,Stop
+Calibration slope,1.0067,Outside 0.9 to 1.1,False,Report and proceed
+Largest calibration bin gap (points),0.96,> 2.0,False,Report and proceed
