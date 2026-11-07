@@ -1,0 +1,22 @@
+check,measured,threshold,triggered,action_if_triggered
+m0 log-loss below baseline,0.54519 vs 0.67166,Stop if not below,False,Stop
+m0 largest gain share (txn_count_60d),0.2950,>= 0.5,False,Stop
+m0 largest single-feature AUC (txn_count_60d),0.7621,>= 0.8,False,Stop
+m0 overall out-of-fold AUC,0.7817,>= 0.9,False,Stop
+m0 calibration slope,1.0007,Outside 0.9 to 1.1,False,Report and proceed
+m0 largest calibration bin gap (points),0.45,> 2.0,False,Report and proceed
+"Mean tau, out-of-fold (points)",+3.1902,Outside +2.8475 to +3.7982 points,False,Stop
+"Mean tau, holdout (points)",+3.2366,Outside +2.8475 to +3.7982 points,False,Stop
+m1: absolute SMD between arms,0.0061,>= 0.05,False,Stop
+m1: treated SD / control SD,0.9995,Outside 0.9 to 1.1,False,Stop
+m1: treated share of the top 20%,0.5033,Outside 0.48 to 0.52,False,Stop
+m0: absolute SMD between arms,0.0063,>= 0.05,False,Stop
+m0: treated SD / control SD,0.9990,Outside 0.9 to 1.1,False,Stop
+tau: absolute SMD between arms,0.0023,>= 0.05,False,Stop
+tau: treated SD / control SD,0.9924,Outside 0.9 to 1.1,False,Stop
+tau: treated share of the top 20%,0.4964,Outside 0.48 to 0.52,False,Stop
+Fold 1: share of the pooled top 20%,0.2002,Outside 0.15 to 0.25,False,Bring to the project owner
+Fold 2: share of the pooled top 20%,0.2027,Outside 0.15 to 0.25,False,Bring to the project owner
+Fold 3: share of the pooled top 20%,0.1945,Outside 0.15 to 0.25,False,Bring to the project owner
+Fold 4: share of the pooled top 20%,0.2078,Outside 0.15 to 0.25,False,Bring to the project owner
+Fold 5: share of the pooled top 20%,0.1948,Outside 0.15 to 0.25,False,Bring to the project owner

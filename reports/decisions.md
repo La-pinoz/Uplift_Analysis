@@ -516,7 +516,7 @@ This check is descriptive and has no automatic rule. The table is `outputs/table
 
 ## Phase 4 status
 
-**Rules locked, not yet run.** Phase 4 builds the T-Learner in `notebooks/03_response_vs_uplift.ipynb`: `m1(X) = P(target = 1 given X, treatment_flg = 1)`, `m0(X) = P(target = 1 given X, treatment_flg = 0)` and `tau(X) = m1(X) - m0(X)`. It produces scores for every labelled customer from models that did not train on them. It does not evaluate targeting.
+**Complete.** Results are in "Phase 4 results". Phase 4 builds the T-Learner in `notebooks/03_response_vs_uplift.ipynb`: `m1(X) = P(target = 1 given X, treatment_flg = 1)`, `m0(X) = P(target = 1 given X, treatment_flg = 0)` and `tau(X) = m1(X) - m0(X)`. It produces scores for every labelled customer from models that did not train on them. It does not evaluate targeting.
 
 An individual `tau(X)` is **Estimated from the model**. It is not a measured effect on that customer, and a negative score does not show that the SMS harmed anyone.
 
@@ -607,8 +607,9 @@ It has two steps, also available separately: `score_ranks(client_ids, scores)` c
 | Function | What it does |
 |---|---|
 | `holdout_score_hash(client_ids, m1_scores, m0_scores)` | The exact SHA-256 defined under "Holdout score freeze" |
-| `check_freeze(recorded_hash, current_hash, reference, client_ids, expected_client_ids, m1_scores, m0_scores, allow_first_run)` | Applies the freeze state table and returns its result. Phase 4 allows a first run, and Phase 5 does not |
-| `arm_balance(client_ids, treatment, scores)` | The three arm-balance measures, with the top 20% from `select_top_k` |
+| `check_freeze(recorded_hash, reference, client_ids, expected_client_ids, m1_scores, m0_scores, allow_first_run)` | Applies the freeze state table and returns its result. It calculates the hash from the scores passed in, so a stale value cannot pass. Phase 4 allows a first run, and Phase 5 does not |
+| `arm_balance(client_ids, treatment, scores)` | The three arm-balance measures, with the top 20% from `select_top_k`. A score with no spread in one arm stops, because its SMD would otherwise be undefined and pass unnoticed |
+| `assert_exact_tau(m1_scores, m0_scores, tau)` | The exact `tau` assertion required on every load of a score file. Added in Stage 2, because both phases need it |
 
 **Comparing with scikit-uplift:** in version 0.5.1, `uplift_at_k` with a fractional `k` rounds down with `int(n * k)`, giving 8,001 holdout rows at 20%, and its reversed sort puts tied rows in the opposite order. It also rejects a whole-number `k` at or above the row count. The plan's cross-check must therefore pass the `select_top_k` group size as a whole-number `k`, allow for ties, and cover budgets below 100% only.
 
@@ -648,7 +649,7 @@ The exact SHA-256 of the holdout scores is recorded in this log. It is calculate
 
 **Order within a run,** so a stop never overwrites existing files:
 
-1. Score the holdout in memory, run every stop check and compare with the freeze record.
+1. Score the holdout in memory and compare with the freeze record, before any table is built from holdout scores. Then run every other stop check and compare the values quoted in this log. A warned run skips that comparison, because tiny differences could change a rounded value.
 2. Write the score files and refit models to a staging folder, `data/processed/phase4_staging/`, and run the row alignment assertions on those copies.
 3. Move them to their final paths. On a first run only, write the reference file last.
 
@@ -716,3 +717,101 @@ When the README is written, it must state that `outputs/tables/holdout_scores_re
 | Not in the plan | Holdout score hash and a committed reference file | Shows whether holdout scores changed before the evaluation, while tolerating tiny numerical differences on a rerun |
 | Not in the plan | Assertions that saved scores match a rescore joined by `client_id` | Scores attached to the wrong customer would pass every other check |
 | Code lives in SQL files and five numbered notebooks | Adds one helper file, `notebooks/targeting.py`, holding top-K selection and the freeze and arm-balance checks. It is not a package | Two notebooks need the same rules, and a second copy could drift |
+
+## Phase 4 results
+
+Values for `m0`, the development interval and arm balance are **Measured** from `notebooks/03_response_vs_uplift.ipynb`, on out-of-fold development rows. Values for `tau` are **Estimated from the model**. Tables are in `outputs/tables/`. No holdout label was loaded.
+
+The Phase 3 performance, calibration and importance code became functions so that `m0` uses the same code. Phase 3's pinned values still pass, so its results did not change.
+
+### Holdout score freeze record
+
+**Holdout scores SHA-256:** `b40d79c605f5447f7b0ba94eafbe0e30f1651aa0fcb266356a4f2b3fe33b6bc2`
+
+A second full run of the notebook on the same machine reproduced this hash exactly. The notebook reads the current hash from this exact label. If it is ever replaced, the old hash is recorded under a different label, "Superseded holdout hash". The reference file is `outputs/tables/holdout_scores_reference.csv`, with 40,008 rows.
+
+### Match with Phase 3
+
+`m1` out-of-fold scores on the 79,985 treated rows match Phase 3 exactly: the largest difference is 0.0, against a tolerance of 1e-9.
+
+### `m0`
+
+| Measure | Value | 95% CI |
+|---|---:|---:|
+| AUC | 0.7817 | 0.7784 to 0.7848 |
+| Log-loss | 0.5452 | 0.5423 to 0.5483 |
+| Baseline log-loss | 0.6717 | 0.6717 to 0.6717 |
+| Log-loss minus baseline | -0.1265 | -0.1294 to -0.1234 |
+
+Fold AUCs run from 0.7779 to 0.7863. The intervals capture uncertainty from the evaluation sample, not from refitting the models. As in Phase 3, the baseline's interval is almost zero-width by construction.
+
+| Check | Result | Threshold | Triggered |
+|---|---:|---:|---|
+| Calibration slope | 1.0007 | Flag outside 0.9 to 1.1 | No |
+| Calibration intercept | -0.0007 | No threshold set | |
+| Largest calibration bin gap | 0.45 points, in bin 5 | Flag above 2 points | No |
+| Largest gain share | 0.2950, `txn_count_60d` | Stop at 0.50 | No |
+| Largest single-feature AUC | 0.7621, `txn_count_60d` | Stop at 0.80 | No |
+| Overall out-of-fold AUC | 0.7817 | Stop at 0.90 | No |
+
+Nothing was recalibrated. The strongest features measure purchase frequency, as they do for `m1`. Express points are weak: their largest gain share is 0.0012, and their largest single-feature AUC is 0.5057.
+
+**What this does not show:** these metrics describe prediction of purchase among control customers. They say nothing about whether the SMS changed anyone's behaviour.
+
+### Mean `tau`
+
+| Item | Points |
+|---|---:|
+| Development treated rate | 63.65% |
+| Development control rate | 60.33% |
+| Development difference | +3.32 |
+| Development interval, 95% | +2.85 to +3.80 |
+| Mean `tau`, out-of-fold | +3.19 |
+| Mean `tau`, holdout | +3.24 |
+
+Both means fall inside the interval, so the stop rule was not triggered. Both sit a little below the development difference, by 0.13 and 0.09 points. The limit stated in the rules applies: this check cannot detect a small shift in the mean.
+
+### Arm balance
+
+| Score | SMD | Treated SD / control SD | Treated share of the top 20% |
+|---|---:|---:|---:|
+| `m1` | +0.0061 | 0.9995 | 50.33% |
+| `m0` | +0.0063 | 0.9990 | Not applied |
+| `tau` | -0.0023 | 0.9924 | 49.64% |
+
+No stop rule was triggered. These are out-of-fold rows only, and the same check runs on holdout scores in Phase 5.
+
+### Distribution of `tau`
+
+All values are in points, apart from customer counts and the share below zero.
+
+| Rows | Customers | Mean | SD | Below zero | Minimum | 5th percentile | Median | 95th percentile | Maximum |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Out-of-fold | 160,031 | +3.19 | 4.79 | 21.41% | -25.47 | -2.99 | +2.50 | +11.23 | +60.00 |
+| Holdout | 40,008 | +3.24 | 4.71 | 19.38% | -20.38 | -2.55 | +2.50 | +11.06 | +58.34 |
+
+The full percentiles are in `outputs/tables/tau_summary.csv`, and the chart is `outputs/figures/tau_distribution.png`.
+
+**How to read it:** these are model estimates, not measured effects, and a score below zero does not show that the SMS harmed anyone. The spread includes model noise, and nothing in this phase shows how much of it reflects real differences between customers. The holdout has fewer scores below zero, 19.38% against 21.41%. Its models trained on about 25% more rows, which may reduce noise, but that explanation is an inference.
+
+### By fold
+
+| Fold | Mean `tau` (points) | SD (points) | Below zero | Share of the pooled top 20% | Spearman, `m1` and `tau` |
+|---:|---:|---:|---:|---:|---:|
+| 1 | +3.22 | 4.80 | 22.0% | 20.0% | -0.143 |
+| 2 | +3.12 | 4.96 | 22.6% | 20.3% | -0.074 |
+| 3 | +3.14 | 4.64 | 21.7% | 19.4% | -0.185 |
+| 4 | +3.27 | 4.89 | 20.7% | 20.8% | -0.144 |
+| 5 | +3.20 | 4.66 | 20.0% | 19.5% | -0.113 |
+
+No fold's share falls outside 15% to 25%, so nothing was flagged, and no fold dominates the pooled ranking.
+
+### Rank correlation of `m1` and `tau`
+
+The Spearman correlation is -0.131 pooled out-of-fold and -0.128 on the holdout, with no interval. The two scores therefore rank customers differently, and customers more likely to buy tend to have slightly lower estimated uplift. This does not show which ranking finds more incremental purchasers. Both scores also share `m1`, so some of this correlation can come from shared noise.
+
+### What the checks cover
+
+- **Scoring:** every fold model trains through one function, which asserts that its training rows come from one arm and share no `client_id` with the fold it scores. Every development row is scored once, in its own fold. All 200,039 customers appear exactly once across the two score files.
+- **Row alignment:** rescoring each saved file after a join by `client_id` reproduced its scores exactly, and every `tau` is the exact 64-bit difference.
+- **Shared code:** the known-answer checks on `notebooks/targeting.py` passed, including the two carried review items that reject bad ranks and non-numeric scores.
