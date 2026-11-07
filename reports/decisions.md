@@ -198,7 +198,7 @@ The observed values confirm the plan's assumptions closely, so the design is unc
 
 ## Phase 2 status
 
-**Feature tables built and validated. The balance rerun and treatment-prediction check have not run.** Their rules below must be committed before they run.
+**Complete.** The feature tables are validated, and the balance rerun and treatment-prediction check ran after their rules below were committed. Results are in "Phase 2 check results".
 
 Definitions are in `outputs/tables/data_dictionary.md`. Phase 2 never reads `target`.
 
@@ -258,6 +258,49 @@ These rules were written before either check ran. The commit that adds this sect
 | Null values | Report each feature's null share by group |
 | Random-split range | Report how many features fall outside ±0.0088. No action follows from this count, because the features are correlated. |
 | Action | Review any SMD above 0.05, and treat any above 0.1 as a concern |
+
+## Phase 2 check results
+
+All values are **Measured** from `notebooks/02_feature_engineering.ipynb`, and the tables are in `outputs/tables/`. `target` was not used.
+
+### Treatment prediction
+
+| Cutoff | Features | AUC | 95% CI |
+|---|---:|---:|---:|
+| Primary | 36 | 0.4982 | 0.4958 to 0.5008 |
+| Primary | 39 | 0.4979 | 0.4954 to 0.5005 |
+| Sensitivity | 36 | 0.4981 | 0.4956 to 0.5006 |
+| Sensitivity | 39 | 0.4990 | 0.4966 to 0.5016 |
+
+| Comparison | Difference | 95% CI |
+|---|---:|---:|
+| AUC(39) - AUC(36), primary cutoff | -0.0003 | -0.0021 to +0.0014 |
+| AUC(39) - AUC(36), sensitivity cutoff (information only) | +0.0009 | -0.0007 to +0.0024 |
+| Primary minus sensitivity, 36 features | +0.0001 | -0.0024 to +0.0027 |
+| Primary minus sensitivity, 39 features | -0.0010 | -0.0037 to +0.0014 |
+
+**Stop rule:** not triggered. Every AUC is below 0.52, and every interval includes 0.50.
+
+**Express inclusion result: express points enter the Phase 3 model.** At the primary cutoff both AUCs are below 0.52 and AUC(39) - AUC(36) is -0.0003, within the 0.005 limit. The 39-feature AUC at the sensitivity cutoff is also below 0.52.
+
+**Limit of the intervals:** they capture uncertainty from the evaluation sample, not from refitting the models.
+
+### Balance on the final features
+
+| Measure | Primary | Sensitivity |
+|---|---:|---:|
+| Features checked | 39 | 39 |
+| Largest absolute SMD | 0.0130 | 0.0129 |
+| Features above 0.05 (review) | 0 | 0 |
+| Features above 0.1 (concern) | 0 | 0 |
+| Features outside ±0.0088 | 1 | 2 |
+| Largest gap in null share between groups | 0.06 points | 0.12 points |
+
+- **Outside the random-split range:** `pre_issue_purchase_flg` at both cutoffs, and `days_since_last_purchase` at the sensitivity cutoff. No action follows, as the rules state.
+- **Null shares:** the largest gap at each cutoff is on `avg_gap_days`: 2.01% treated and 2.07% control at the primary cutoff, and 2.93% and 3.05% at the sensitivity cutoff.
+- **Phase 1 comparison only:** `log1p` SMDs are +0.0082 for `txn_count_hist` and +0.0095 for `spend_hist` at the primary cutoff, and +0.0084 and +0.0108 at the sensitivity cutoff. These match Phase 1, as do all ten variables shared with its balance table.
+
+**How to read it:** these checks found no observed feature, alone or combined, that separates the groups. That supports the assignment wording already recorded, but it does not prove randomisation or rule out differences on unobserved characteristics.
 
 ## Where Phase 2 departs from the plan
 
