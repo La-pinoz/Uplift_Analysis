@@ -195,3 +195,87 @@ The observed values confirm the plan's assumptions closely, so the design is unc
 | Placebo window of 28 to 15 days before the cutoff | That window is secondary, and a 28-day window ending 2019-02-23 is primary | The original window overlaps the 2019-02-24 activity boundary |
 | Keep one `purchase_sum` per transaction | The transaction key is `(client_id, transaction_id)` | 28 `transaction_id` values are shared by two clients |
 | Two-hour documentation search | Closed early | The timebox was an upper limit, and no further search was requested |
+
+## Phase 2 status
+
+**Feature tables built and validated. The balance rerun and treatment-prediction check have not run.** Their rules below must be committed before they run.
+
+Definitions are in `outputs/tables/data_dictionary.md`. Phase 2 never reads `target`.
+
+## Phase 2 locked decisions
+
+| Topic | Decision |
+|---|---|
+| Feature tables | One SQL macro with the cutoff as a parameter builds both tables. Each holds `client_id` and 39 features, with no treatment, outcome or split columns. |
+| Cutoffs | Primary: `transaction_datetime < 2019-03-19 00:00`. Sensitivity: `transaction_datetime < 2019-03-12 00:00`. Both are exclusive. |
+| Sensitivity table | Used only for balance and treatment-prediction checks, never for training. |
+| Names | `_hist` names totals over the available history: 118 days at the primary cutoff and 111 at the sensitivity cutoff. The data dictionary marks every feature this limit affects, including those without the suffix. |
+| Trend | `ln((last 30 days + 1) / (previous 30 days + 1))` for transactions and spend. It is biased upward because every customer bought on or after 2019-02-24. |
+| Timing | Weekend share and three neutral recorded-hour bands: 05-09, 10-13 and 14-19. |
+| Points | Full-history totals for all four fields, plus 30-day spent for regular and express. Each uses one value per `(client_id, transaction_id)`, asserted constant within a transaction. Spent is shown as positive. |
+| Express label | "Cleared in Phase 1; inclusion set by the treatment-check rule". The label does not change after the check, and the result is recorded in this log. Project rule 3 says "any doubtful field stays out of the primary model". Express points passed the Phase 1 checks, so they are not treated as doubtful under that rule, even though their meaning remains undocumented. Entry to the Phase 3 model is decided only by the inclusion rule below. |
+| Missing and extreme values | Undefined stays null. Empty-window counts and spend are 0. No imputation, caps or logs in the table. |
+| Age | Same rule as Phase 1: 14 to 100 inclusive is valid. Anything else is null with `age_invalid_flg` = 1. |
+| `pre_issue_purchase_flg` | Same rule as Phase 1: compares timestamps. A same-day first purchase before the issue time is 1, and one at or after the issue time is 0. |
+| `first_redeem_date` | Stays out of the feature tables and every treatment-prediction run. |
+
+## Rules for the Phase 2 checks
+
+These rules were written before either check ran. The commit that adds this section is the record of that order, and results are added in a later commit.
+
+**Treatment-prediction setup**
+
+| Item | Rule |
+|---|---|
+| Customers | All 200,039. `target` is not used. |
+| Feature sets | 36 features without express points, and 39 with them. The three express features are `express_points_received_hist`, `express_points_spent_hist` and `express_points_spent_30d`. |
+| Runs | Both feature sets at both cutoffs, four in total |
+| Model | XGBoost, not tuned: `n_estimators=300`, `max_depth=4`, `learning_rate=0.05`, `subsample=0.8`, `colsample_bytree=0.8`, `tree_method="hist"`, seed 42 |
+| Folds | New five-fold split, sorted by `client_id` and stratified on `treatment_flg` only, seed 42. The saved folds cover development customers only and were stratified using `target`. |
+| AUC | Calculated once on the pooled out-of-fold predictions |
+| Intervals | Stratified percentile bootstrap, 2,000 resamples, seed 42, using the same resamples for paired differences |
+
+**Stop rule, using the AUC point estimate**
+
+| Result | Action |
+|---|---|
+| Every AUC below 0.52 | Report with intervals, with no stop or investigation. The express inclusion rule below still decides whether express points enter Phase 3 |
+| A 36-feature AUC at or above 0.52, at either cutoff | Stop and investigate before Phase 3 |
+| Only 39-feature AUCs at or above 0.52 | Expected resolution: drop express points, without halting |
+
+**Express inclusion rule:** express points enter the Phase 3 model only if, at the primary cutoff, the 36-feature and 39-feature AUCs are both below 0.52 and AUC(39) - AUC(36) is at most 0.005, using point estimates. A 39-feature AUC at or above 0.52 at the sensitivity cutoff also drops them, under the stop rule. The 0.005 test applies at the primary cutoff only. The inclusion result is recorded in this log after the check runs.
+
+**Also reported:** AUC(39) - AUC(36) at the sensitivity cutoff, for information with no action, and primary-minus-sensitivity AUC for each feature set.
+
+**Main multivariate check:** the treatment-prediction AUC is the main multivariate check, and it isn't affected by monotonic transforms of a feature, because tree splits depend only on each feature's order and AUC depends only on the ranking of predictions. So the choice of raw or log values below does not change it.
+
+**Balance rerun**
+
+| Item | Rule |
+|---|---|
+| Features | All 39 stored features at both cutoffs |
+| SMD | Calculated on non-null stored values with no transforms, and these values drive the count and actions below. `log1p` SMDs for `txn_count_hist` and `spend_hist` are also shown for comparison with Phase 1, but do not count toward them |
+| Null values | Report each feature's null share by group |
+| Random-split range | Report how many features fall outside ±0.0088. No action follows from this count, because the features are correlated. |
+| Action | Review any SMD above 0.05, and treat any above 0.1 as a concern |
+
+## Where Phase 2 departs from the plan
+
+| Plan | This analysis | Why |
+|---|---|---|
+| Optional product features, kept if they improve development results | Left out and moved to Future work, with no `03_product_features.sql` | Category spend shares would need the product-level amount that `purchase_sum` was locked over. Two `level_1` values cover 98% of spend. Adding them after Phase 3 locks its setup would mean redoing that lock. |
+| Average items | Mean product rows per transaction, and distinct products across the history | `product_quantity` is 0 on 5.9% of labelled customers' product rows, and 99.7% of those rows have a positive amount, so summing quantity would undercount baskets |
+| Time-of-day shares | Neutral recorded-hour bands | The recorded hours suggest a possible clock shift that no documentation settles |
+| Treatment check with and without doubtful fields | Express points are the only tested field | `first_redeem_date` stays locked out, and Phase 1 already showed it holds post-treatment information |
+| Treats doubtful fields as out of the primary model (rule 3), with express points to be checked in Phase 1 | Express points are not treated as doubtful, and their entry follows the inclusion rule above | They passed the Phase 1 checks, so the decision rests on a stated test |
+| One feature table | A second table at the sensitivity cutoff, for checks only | The cutoff sensitivity logged in Phase 1 should also cover the final features |
+
+## Phase 2 findings from validation
+
+All values are **Measured** from `notebooks/02_feature_engineering.ipynb`.
+
+- **Transaction key:** `(client_id, transaction_id)` is confirmed, with 8,045,229 distinct pairs against 8,045,201 distinct `transaction_id` values. `purchase_sum` and all four points fields are constant within every transaction.
+- **Age:** the rule matches Phase 1 exactly, with 883 labelled customers invalid.
+- **`pre_issue_purchase_flg`:** of the 23,532 customers flagged at the primary cutoff, 23,515 bought on the issue date itself and 17 on an earlier date. Only 5 customers have a same-day first purchase at or after the issue time. The flag mostly marks a first purchase recorded shortly before the issue time on the same day. That a card is recorded as issued after the sale that created it is an inference.
+- **Sensitivity table:** 753 customers have no earlier purchase, and 154 cards were issued from 2019-03-12 to 2019-03-18. All 154 are among the 753.
+- **Recency:** the longest `days_since_last_purchase` is 22 at the primary cutoff and 109 at the sensitivity cutoff. The 2019-02-24 pattern falls after the sensitivity cutoff, so differences between the two tables are partly mechanical.

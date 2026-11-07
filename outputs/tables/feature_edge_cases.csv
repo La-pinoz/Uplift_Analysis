@@ -1,0 +1,17 @@
+case,client_id,cutoff,txn_count_hist,features_matching
+One transaction,0009e6bafa,Primary,1,39
+One transaction,0009e6bafa,Sensitivity,1,39
+Invalid age,000220a0a7,Primary,15,39
+Invalid age,000220a0a7,Sensitivity,14,39
+Purchase on an earlier date than issue,020cb514d8,Primary,51,39
+Purchase on an earlier date than issue,020cb514d8,Sensitivity,48,39
+Purchase before issue on the same day,00035a21d9,Primary,3,39
+Purchase before issue on the same day,00035a21d9,Sensitivity,3,39
+Zero-sum transaction,011fef655c,Primary,19,39
+Zero-sum transaction,011fef655c,Sensitivity,18,39
+Shared transaction_id,015c5bdf0f,Primary,21,39
+Shared transaction_id,015c5bdf0f,Sensitivity,18,39
+No history at the sensitivity cutoff,00f6b4df4c,Primary,2,39
+No history at the sensitivity cutoff,00f6b4df4c,Sensitivity,0,39
+Card issued in the final week,01ef560ee7,Primary,2,39
+Card issued in the final week,01ef560ee7,Sensitivity,0,39
