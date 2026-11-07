@@ -322,3 +322,116 @@ All values are **Measured** from `notebooks/02_feature_engineering.ipynb`.
 - **`pre_issue_purchase_flg`:** of the 23,532 customers flagged at the primary cutoff, 23,515 bought on the issue date itself and 17 on an earlier date. Only 5 customers have a same-day first purchase at or after the issue time. The flag mostly marks a first purchase recorded shortly before the issue time on the same day. That a card is recorded as issued after the sale that created it is an inference.
 - **Sensitivity table:** 753 customers have no earlier purchase, and 154 cards were issued from 2019-03-12 to 2019-03-18. All 154 are among the 753.
 - **Recency:** the longest `days_since_last_purchase` is 22 at the primary cutoff and 109 at the sensitivity cutoff. The 2019-02-24 pattern falls after the sensitivity cutoff, so differences between the two tables are partly mechanical.
+
+## Phase 3 status
+
+**Rules locked, not yet run.** Phase 3 builds the conventional "likely to purchase" ranking, `m1(X) = P(target = 1 given X, treatment_flg = 1)`, in `notebooks/03_response_vs_uplift.ipynb`. It produces the locked model setup and its metrics. It saves no model and uses no control or holdout rows.
+
+## Rules for Phase 3
+
+These rules were written before any tuning ran. The commit that adds this section is the record of that order, and results are added in a later commit.
+
+### Data
+
+| Item | Rule |
+|---|---|
+| Customers | The 79,985 treated development customers, in the saved five folds: 15,998, 15,997, 15,997, 15,997 and 15,996 |
+| Loading labels | One query, filtered to `split = 'development'` and `treatment_flg = 1`, so holdout and control labels are never loaded |
+| Features | All 39 columns of `customer_features.parquet`, in stored order, including the three express features admitted by the Phase 2 inclusion rule |
+| Row order | Sorted by `client_id` before folds are applied |
+| Hard assertions | 79,985 rows, no holdout `client_id`, all rows treated, and feature columns equal to the locked Phase 2 list |
+
+**Why row order is locked:** in a synthetic-data check on xgboost 3.4.1, changing only the training row order moved predictions by up to 0.099.
+
+**Limit of reusing the saved folds:** the setup is chosen on the same rows that later produce the out-of-fold strategy results, and each tree count is chosen on the validation rows it is then scored on. Those results are therefore slightly optimistic. Tuning sees only treated log-loss, never an uplift metric, the out-of-fold view is secondary, and the holdout stays clean.
+
+### Model settings
+
+| Setting | Value |
+|---|---|
+| `objective` | `binary:logistic`, with no class weighting, so scores stay probabilities |
+| `learning_rate` | 0.05 |
+| `subsample` | 0.8 |
+| `colsample_bytree` | 0.8 |
+| `tree_method` | `hist` |
+| Seed | `random_state=42` |
+| Regularisation | `reg_lambda=1`, `reg_alpha=0`, `gamma=0`, the xgboost 3.4.1 defaults, stated explicitly |
+| Threads | `n_jobs=8` |
+| Missing values | Handled natively by XGBoost |
+
+**Grid of eight settings:** `max_depth` of 2, 3, 4 or 6, crossed with `min_child_weight` of 10 or 100.
+
+### Tree count
+
+1. Train each setting in each fold up to a 1,500-tree cap, recording validation log-loss after every tree.
+2. Average the curves across the five folds, and take the tree count with the lowest mean. The earliest count wins a tie.
+3. If a setting's count lands on 1,500, rerun that setting once with a 3,000-tree cap, and use the rerun's count.
+4. If it lands on 3,000, stop and escalate.
+
+The Phase 4 refit on the full development set uses the same count on about 25% more rows, which is slightly conservative.
+
+### Choosing the setting
+
+Each setting is scored by its log-loss in each fold at its own locked tree count.
+
+1. **Best:** the setting with the lowest mean log-loss across folds.
+2. **Eligible:** for each setting, take its five paired fold differences against the best. It is eligible if the mean difference is at most `SE = SD of the five differences / sqrt(5)`, using the sample SD.
+3. **Chosen:** the simplest eligible setting, by `max_depth` ascending, then `min_child_weight` 100 before 10, then fewer trees.
+
+These two grid values identify each setting, so the tree-count step cannot change the choice here. It is recorded for completeness. With five folds this SE is rough, but the rule is fixed in advance.
+
+### Performance
+
+Reported on pooled out-of-fold predictions from the chosen setting, trained in each fold at its locked tree count.
+
+| Item | Rule |
+|---|---|
+| Metrics | AUC and log-loss, each with a percentile 95% interval from 2,000 bootstrap resamples, stratified on `target`, seed 42, plus a per-fold table |
+| Baseline | Log-loss from predicting each training fold's purchase rate for its validation fold |
+| Stop rule | If the model's pooled log-loss is not below the baseline's, stop and investigate before Phase 4 |
+| Limit | The intervals capture uncertainty from the evaluation sample, not from refitting the models |
+
+### Calibration
+
+| Item | Rule |
+|---|---|
+| Report | Ten equal-count bins with mean predicted and observed purchase rates, a plot, and a slope and intercept fitted together by logistic regression of `target` on the logit of the prediction |
+| Flag | Slope outside 0.9 to 1.1, or any bin off by more than 2 points. These thresholds are judgement calls |
+| If flagged | Report it and proceed without recalibrating, unless the project owner decides otherwise |
+| Phase 4 | The same report runs on `m0` |
+
+Recalibrating would not change the response ranking, but it would change `tau(X) = m1(X) - m0(X)`, so it is not applied by default.
+
+### Leakage review
+
+Strong recency effects are expected and do not show leakage on their own. The specific risk is that the undocumented outcome window overlaps the end of the purchase history.
+
+**Stop and investigate before Phase 4 if any of these occur.** These thresholds are judgement calls.
+
+| Check | Threshold | How it is measured |
+|---|---|---|
+| Feature gain | At least 50% of total gain | Each feature's share of total gain in each of the chosen setting's five fold models, averaged across the models |
+| Single-feature AUC | At least 0.80 | `max(AUC, 1 - AUC)` across treated development rows, leaving out rows where the feature is null |
+| Overall AUC | At least 0.90 | Pooled out-of-fold predictions |
+
+**Descriptive check, with no automatic rule:** a table and plot of customer count and purchase rate by `days_since_last_purchase` from 0 to 22, among treated development customers. A smooth decline looks like habit, while a sharp jump at 0 or 1 days would suggest overlap. The project owner reviews this before Phase 4.
+
+### Link to Phase 4
+
+Phase 4 retrains `m1` within each fold and hard-asserts that its out-of-fold scores on treated rows match Phase 3's within 1e-9, using the same seed, folds, row order, feature order, `tree_method` and thread count. The comparison happens within one notebook run, so no scores are saved.
+
+In the same synthetic-data check, repeating a fit and truncating a longer model to the same tree count both matched exactly, so the assertion is achievable. XGBoost returns 32-bit predictions, so this tolerance in effect requires an exact match.
+
+### Order of work
+
+1. **Stage 1:** add these rules to this log, ending at a commit.
+2. **Stage 2:** after that commit, run the tuning and checks, then record the locked setup here and commit it before Phase 4.
+
+## Where Phase 3 departs from the plan
+
+| Plan | This analysis | Why |
+|---|---|---|
+| Select by five-fold log-loss | Simplest setting within one standard error of the lowest log-loss | Log-loss differences may be too small to separate settings reliably, and simpler models add less noise when subtracted in the T-Learner |
+| Check AUC, log-loss and calibration | Adds intervals, a baseline with a stop rule, and calibration flags with a default action | The plan gave no failure condition |
+| Review feature importance for anything suspicious | Three stop thresholds and a descriptive recency check | "Looks like leakage" needed a test fixed in advance |
+| Calibration check on the response model | The same report also runs on `m0` in Phase 4 | `tau(X)` depends on both models |
