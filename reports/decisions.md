@@ -325,7 +325,7 @@ All values are **Measured** from `notebooks/02_feature_engineering.ipynb`.
 
 ## Phase 3 status
 
-**Complete, apart from the project owner's review of the recency check.** Phase 3 builds the conventional "likely to purchase" ranking, `m1(X) = P(target = 1 given X, treatment_flg = 1)`, in `notebooks/03_response_vs_uplift.ipynb`. It produces the locked model setup and its metrics. It saves no model and uses no control or holdout rows. Results are in "Phase 3 results".
+**Complete.** The setup is locked, and the project owner approved the recency check. Phase 3 builds the conventional "likely to purchase" ranking, `m1(X) = P(target = 1 given X, treatment_flg = 1)`, in `notebooks/03_response_vs_uplift.ipynb`. It produces the locked model setup and its metrics. It saves no model and uses no control or holdout rows. Results are in "Phase 3 results".
 
 ## Rules for Phase 3
 
@@ -512,4 +512,4 @@ This check is descriptive and has no automatic rule. The table is `outputs/table
 - **At 11 to 13 days:** the rate steps up by about 4 points and then down by about 7, and the intervals at 10 and 11 days do not overlap. These customers last bought from 2019-03-05 to 2019-03-07, just before International Women's Day on 2019-03-08, a public holiday in Russia. A holiday effect is an inference, not something this data establishes. The step is far from the cutoff, so it does not suggest window overlap.
 - **Coverage:** the rule named 0 to 22 days, but no treated development customer has a value of 22.
 
-**Project owner's review:** pending.
+**Project owner's review:** approved on 2026-11-08 to proceed to Phase 4. The step at 11 to 13 days stays documented as unexplained. The review does not rule out overlap with the outcome window.
