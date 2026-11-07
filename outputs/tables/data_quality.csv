@@ -1,0 +1,44 @@
+check_group,check_name,value,expected,status
+Invalid values,clients with age outside 14-100,1779.0,,REPORT
+Invalid values,first_redeem_date before first_issue_date,536.0,,REPORT
+Invalid values,"gender outside M, F, U",0.0,0.0,PASS
+Invalid values,maximum age,1901.0,,REPORT
+Invalid values,minimum age,-7491.0,,REPORT
+Invalid values,negative purchase_sum,0.0,0.0,PASS
+Invalid values,purchase rows with negative quantity,0.0,0.0,PASS
+Invalid values,purchase rows with zero quantity,2707278.0,,REPORT
+Invalid values,transactions dated on or after the primary cutoff,0.0,0.0,PASS
+Invalid values,transactions with a zero-quantity row,1829319.0,,REPORT
+Invalid values,transactions with negative points received,0.0,,REPORT
+Invalid values,transactions with positive points spent,0.0,,REPORT
+Invalid values,transactions with purchase_sum of zero,567.0,,REPORT
+Invalid values,uplift_train clients with age outside 14-100,883.0,,REPORT
+Joins,clients in neither uplift_train nor uplift_test,0.0,0.0,PASS
+Joins,purchase clients missing from clients,0.0,0.0,PASS
+Joins,purchase rows with a product missing from products,0.0,,REPORT
+Joins,uplift_test clients missing from clients,0.0,0.0,PASS
+Joins,uplift_train and uplift_test overlap,0.0,0.0,PASS
+Joins,uplift_train clients missing from clients,0.0,0.0,PASS
+Joins,uplift_train clients with no purchases,0.0,0.0,PASS
+Keys,"distinct (client_id, transaction_id)",8045229.0,,REPORT
+Keys,distinct transaction_id,8045201.0,,REPORT
+Keys,duplicate client_id in clients,0.0,0.0,PASS
+Keys,duplicate client_id in uplift_test,0.0,0.0,PASS
+Keys,duplicate client_id in uplift_train,0.0,0.0,PASS
+Keys,duplicate product within a transaction,0.0,0.0,PASS
+Keys,duplicate product_id in products,0.0,0.0,PASS
+Keys,null client_id or transaction_id in purchases,0.0,0.0,PASS
+Keys,transaction_id values shared by more than one client,28.0,,REPORT
+Required fields,clients with a null required field,0.0,0.0,PASS
+Required fields,purchase rows with a null required field,0.0,0.0,PASS
+Required fields,target null or outside 0 and 1,0.0,0.0,PASS
+Required fields,treatment_flg null or outside 0 and 1,0.0,0.0,PASS
+Row counts,clients rows,400162.0,400162.0,PASS
+Row counts,products rows,43038.0,,REPORT
+Row counts,purchases rows,45786568.0,45786568.0,PASS
+Row counts,uplift_test rows,200123.0,200123.0,PASS
+Row counts,uplift_train rows,200039.0,200039.0,PASS
+Transaction fields,multi-row transactions,6977760.0,,REPORT
+Transaction fields,transactions with more than one purchase_sum,0.0,0.0,PASS
+Transaction fields,transactions with more than one timestamp,0.0,0.0,PASS
+Transaction fields,transactions with more than one value in a points field,0.0,0.0,PASS

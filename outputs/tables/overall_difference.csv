@@ -1,0 +1,2 @@
+treated_customers,control_customers,treated_purchasers,control_purchasers,treated_rate,control_rate,absolute_difference,difference_ci_low,difference_ci_high,z_statistic,p_value,relative_lift,lift_ci_low,lift_ci_high,bootstrap_ci_low,bootstrap_ci_high,bootstrap_resamples,bootstrap_seed
+99981,100058,63639,60363,0.6365109370780448,0.6032800975434248,0.03323083953462003,0.028979012995450543,0.03748266607378951,15.309339918886566,6.623268877019162e-53,0.05508359992304901,0.04786066774864328,0.06235631996601554,0.02884149466291411,0.037350612899506745,2000,42

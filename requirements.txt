@@ -1,4 +1,4 @@
-# Tested on Python 3.12 (Windows). Pins cover direct dependencies only.
+# Tested on Python 3.13 (Windows). Pins cover direct dependencies only.
 
 # Data and SQL
 duckdb==2.0.0
