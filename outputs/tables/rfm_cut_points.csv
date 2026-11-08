@@ -1,0 +1,4 @@
+variable,column,method,value_cut_1,value_cut_2,cut_1,cut_2
+recency,days_since_last_purchase,value,2.0,7.0,2,7
+frequency,txn_count_hist,value,10.0,22.0,10,22
+monetary,spend_hist,value,4045.0899999999997,8973.04,4045.09,8973.04

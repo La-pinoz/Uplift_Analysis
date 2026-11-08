@@ -818,7 +818,7 @@ The Spearman correlation is -0.131 pooled out-of-fold and -0.128 on the holdout,
 
 ## Phase 5 status
 
-**Stage 1: rules written.** No Phase 5 result exists. Phase 5 asks whether ranking by `tau` finds more incremental purchasers than ranking by `m1`, in `notebooks/04_policy_evaluation.ipynb`, using the scores frozen in Phase 4. The models, features and scores are not changed.
+**Stage 2: development results recorded.** The rules were committed in `202c311` before any targeting result existed. Out-of-fold results and the lock record are under "Phase 5 development results". No holdout score or holdout label has been loaded in Phase 5, and Stage 3 waits for the lock commit. Phase 5 asks whether ranking by `tau` finds more incremental purchasers than ranking by `m1`, in `notebooks/04_policy_evaluation.ipynb`, using the scores frozen in Phase 4. The models, features and scores are not changed.
 
 ## Rules for Phase 5
 
@@ -1032,3 +1032,128 @@ These go in `notebooks/targeting.py`, with known-answer checks in the notebook's
 | "Run this once" | A rule for bugs found after the holdout is opened | The plan did not say what to do then |
 | Curves from scikit-uplift | Drawn with Matplotlib from `sklift.metrics` | `sklift.viz` does not import with the installed scikit-learn |
 | Random and contact everyone on the holdout | Use the holdout's overall difference as a reference point only | Paired differences need a reference on the same rows. The campaign effect stays the Phase 1 figure |
+
+## Phase 5 development results
+
+Values are **Measured** from `notebooks/04_policy_evaluation.ipynb`, on the 160,031 pooled out-of-fold development rows. They are **secondary**, or **exploratory** at 5%, and none of them is the primary result, which comes only from the holdout in Stage 3. Causal readings depend on the assignment assumption. Tables are in `outputs/tables/`, and the intervals capture uncertainty from the evaluation sample, not from refitting the models.
+
+Later full runs of the notebook reproduced every Stage 2 table exactly, by file checksum. The notebook also stops if any value quoted below changes.
+
+### Checks
+
+| Check | Result | Rule | Triggered |
+|---|---|---|---|
+| Treated share, `m1`, at 5%, 10% and 30% | 50.34%, 50.18%, 50.06% | Within ±1.96, ±1.38 and ±0.80 points of 50% | No |
+| Treated share, `tau`, at 5%, 10% and 30% | 49.99%, 49.89%, 49.64% | Same bands | No |
+| Shuffle check, 1,000 orderings per budget | Largest gap 0.36 Monte Carlo standard errors, at 5% | Stop beyond 4 | No |
+| Match with scikit-uplift, 8 comparisons | Largest difference 0.0 | Stop above 1e-12 | No |
+
+The closest treated share to its band is `tau` at 30%: 49.64%, against a lower limit of 49.20%.
+
+### Uplift@K by strategy
+
+In points, with 95% intervals. Random is the expected value of random targeting, and its interval leaves out the noise of a single random draw.
+
+| Budget | Random | Response | Uplift |
+|---:|---:|---:|---:|
+| 5% (exploratory) | +3.32 (+2.86 to +3.78) | +0.31 (-0.37 to +1.00) | +11.57 (+9.54 to +13.83) |
+| 10% | +3.32 (+2.86 to +3.78) | +1.33 (+0.73 to +1.92) | +9.28 (+7.78 to +10.82) |
+| 20% | +3.32 (+2.86 to +3.78) | +1.45 (+0.87 to +2.04) | +7.12 (+6.03 to +8.17) |
+| 30% | +3.32 (+2.86 to +3.78) | +1.84 (+1.28 to +2.44) | +5.87 (+4.93 to +6.73) |
+
+Contact everyone: +3.32 points (+2.86 to +3.78), or 3,323 incremental purchasers per 100,000 customers (2,857 to 3,782). Incremental purchasers per 100,000 for each strategy and budget are in `oof_strategy_results.csv`.
+
+### Paired differences
+
+In points, with paired 95% intervals. Incremental purchasers per 100,000 customers are in brackets.
+
+| Budget | Uplift minus response | Uplift minus random | Response minus random |
+|---:|---:|---:|---:|
+| 5% (exploratory) | +11.26 (+9.01 to +13.57) [+563] | +8.25 (+6.22 to +10.40) [+412] | -3.01 (-3.81 to -2.18) [-151] |
+| 10% | +7.95 (+6.35 to +9.62) [+795] | +5.96 (+4.58 to +7.43) [+596] | -1.99 (-2.71 to -1.27) [-199] |
+| 20% | +5.67 (+4.46 to +6.92) [+1,134] | +3.80 (+2.88 to +4.78) [+760] | -1.87 (-2.52 to -1.23) [-374] |
+| 30% | +4.04 (+2.95 to +4.99) [+1,211] | +2.55 (+1.77 to +3.28) [+765] | -1.49 (-2.05 to -0.85) [-446] |
+
+At 20%, the uplift minus response difference is +1,134 incremental purchasers per 100,000 customers, 95% interval +893 to +1,384. This is the out-of-fold version of the primary comparison, so the decision rule does not apply to it.
+
+### Qini and AUUC
+
+| Metric | Response | Uplift | Uplift minus response |
+|---|---:|---:|---:|
+| Qini coefficient | -0.0053 (-0.0082 to -0.0022) | +0.0131 (+0.0099 to +0.0165) | +0.0184 (+0.0140 to +0.0229) |
+| AUUC | -0.0083 (-0.0128 to -0.0034) | +0.0204 (+0.0155 to +0.0255) | +0.0287 (+0.0219 to +0.0357) |
+
+Both are normalised by scikit-uplift, so random ranking scores near zero. The chart is `outputs/figures/oof_qini_uplift_curves.png`.
+
+### By fold
+
+| Fold | Response Uplift@20 | Uplift Uplift@20 | Uplift minus response |
+|---:|---:|---:|---:|
+| 1 | +1.95 | +8.09 | +6.14 |
+| 2 | +1.75 | +5.08 | +3.34 |
+| 3 | +1.13 | +8.01 | +6.88 |
+| 4 | +1.49 | +6.98 | +5.49 |
+| 5 | +1.09 | +7.88 | +6.79 |
+
+Report only. Each fold ranks its own rows. The difference is positive in every fold, and fold 2 is the smallest.
+
+### Disagreement analysis
+
+| Quadrant | Customers | Treated rate | Control rate | Observed uplift, 95% CI |
+|---|---:|---:|---:|---:|
+| Likely buyers, more apparent SMS effect | 34,523 | 78.92% | 75.06% | +3.86 (+2.97 to +4.75) |
+| Likely buyers, less apparent SMS effect | 45,493 | 85.83% | 84.24% | +1.59 (+0.94 to +2.25) |
+| Possible persuadables | 45,493 | 44.41% | 39.09% | +5.31 (+4.41 to +6.22) |
+| Less likely buyers, less apparent SMS effect | 34,522 | 44.20% | 42.41% | +1.79 (+0.75 to +2.84) |
+
+| Quadrant | Days since last purchase, median | Transactions, median | Spend, median |
+|---|---:|---:|---:|
+| Likely buyers, more apparent SMS effect | 2 | 21 | 7,041 |
+| Likely buyers, less apparent SMS effect | 1 | 32 | 12,191 |
+| Possible persuadables | 8 | 8 | 3,237 |
+| Less likely buyers, less apparent SMS effect | 9 | 9 | 4,040 |
+
+Means are in `disagreement_profile.csv`, and the chart is `outputs/figures/disagreement_quadrants.png`.
+
+| Budget | List size | On both lists | Share of the uplift list on the response list |
+|---:|---:|---:|---:|
+| 5% | 8,002 | 0 | 0.0% |
+| 10% | 16,003 | 76 | 0.5% |
+| 20% | 32,006 | 1,193 | 3.7% |
+| 30% | 48,009 | 7,042 | 14.7% |
+
+**How to read it:** these are model-defined groups, and no test between them was run. The two rankings choose almost entirely different customers at small budgets. The customers most likely to buy, who are frequent, recent and high-spending, already buy at about 84% without the SMS, and their observed uplift is small. That is consistent with response targeting falling below random targeting here, but it does not identify individual persuadable customers.
+
+### RFM cut points
+
+| Variable | Column | Method | First cut point | Second cut point | Development shares of tertiles 1, 2 and 3 |
+|---|---|---|---:|---:|---|
+| Recency | `days_since_last_purchase` | Value | 2 | 7 | 37.9%, 29.7%, 32.4% |
+| Frequency | `txn_count_hist` | Value | 10 | 22 | 34.3%, 33.2%, 32.4% |
+| Monetary | `spend_hist` | Value | 4,045.09 | 8,973.04 | 33.3%, 33.3%, 33.3% |
+
+Every tertile holds between 20% and 50% of development rows, so no variable uses the fallback.
+
+| Segment | Recency | Frequency and monetary value | Development customers | All customers |
+|---:|---|---|---:|---:|
+| 1 | Recent | Lower | 22,189 | 27,843 |
+| 2 | Recent | Higher | 38,478 | 48,222 |
+| 3 | Moderately recent | Lower | 29,385 | 36,640 |
+| 4 | Moderately recent | Higher | 18,111 | 22,564 |
+| 5 | Least recent | Lower | 42,667 | 53,259 |
+| 6 | Least recent | Higher | 9,201 | 11,511 |
+
+No outcome was used to set these, and segment effects are not calculated until Stage 3.
+
+### What Stage 2 does not show
+
+Every score comes from a model that did not train on that customer. These same rows chose the model setup in Phase 3, though, and five different model pairs produced the pooled ranking. Whether the difference holds on untouched customers is the Stage 3 question. The Stage 1 precision estimate assumed 0% to 15% list overlap at 20%, and the observed out-of-fold overlap is 3.7%, inside that range. That is not a forecast of the holdout result.
+
+### Phase 5 lock record
+
+- **Rules:** "Rules for Phase 5" is unchanged since commit `202c311`. Stage 2 changed no rule.
+- **RFM segments:** value-based tertiles for all three variables, with the cut points above. No fallback.
+- **Arm balance:** the Phase 4 measures, SMD, SD ratio and the 48% to 52% share at 20%, ran on these rows in Phase 4 and are not repeated here. Stage 2 ran only the new bands at 5%, 10% and 30%. The full check runs on holdout rows in Stage 3.
+- **Code paths:** the shuffle check passes its orderings to `select_by_rank` through `uplift_at_k_by_rank`. The reported Uplift@K values come from `uplift_at_budgets`, and both paths must match scikit-uplift within 1e-12. `overall_difference` moved into `notebooks/targeting.py`, with the same input checks as Uplift@K.
+- **Holdout:** no holdout score or holdout label has been loaded in Phase 5. The Phase 4 freeze record, hash `b40d79c6...`, is unchanged.
+- **Lock commit:** the commit that adds this record. The project owner supplies its hash for `LOCK_COMMIT_SHA`, and Stage 3 prints it and records it with the results.

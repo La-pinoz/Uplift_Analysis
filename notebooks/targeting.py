@@ -1,4 +1,4 @@
-"""Rules that more than one notebook must apply identically: top-K selection, arm balance and the holdout freeze."""
+"""Rules that more than one notebook must apply identically: top-K selection, arm balance, the holdout freeze and Uplift@K."""
 import hashlib
 
 import numpy as np
@@ -43,21 +43,30 @@ def select_by_rank(ranks, percent):
     rounding. Ranks may repeat, as they do in a bootstrap resample. Copies of a customer on the
     cutoff are kept in input order.
     """
+    ranks = _require_ranks(ranks)
+    size = _group_size(len(ranks), percent)
+    mask = np.zeros(len(ranks), dtype=bool)
+    mask[np.argsort(ranks, kind="stable")[:size]] = True
+    return mask
+
+
+def _require_ranks(ranks):
     ranks = np.asarray(ranks)
     if ranks.ndim != 1 or len(ranks) == 0:
         raise ValueError("ranks must be one-dimensional and not empty")
     if ranks.dtype.kind not in "iu" or ranks.min() < 0:
         raise ValueError("ranks must be whole, non-negative numbers, as score_ranks returns")
+    return ranks
+
+
+def _group_size(n, percent):
+    """`percent * n / 100` rounded to the nearest whole number, halves up, in whole-number arithmetic."""
     if isinstance(percent, (bool, np.bool_)) or not isinstance(percent, (int, np.integer)) or not 1 <= percent <= 100:
         raise ValueError("percent must be a whole number from 1 to 100")
-
-    size = (int(percent) * len(ranks) + 50) // 100
+    size = (int(percent) * n + 50) // 100
     if size == 0:
         raise ValueError("This percent selects no customers")
-
-    mask = np.zeros(len(ranks), dtype=bool)
-    mask[np.argsort(ranks, kind="stable")[:size]] = True
-    return mask
+    return size
 
 
 def select_top_k(client_ids, scores, percent):
@@ -153,3 +162,102 @@ def check_freeze(recorded_hash, reference, client_ids, expected_client_ids, m1_s
     if largest <= FREEZE_TOLERANCE:
         return "warn", f"The hash differs, and the largest difference from the reference file is {largest:.2e}"
     return "stop", f"The largest difference from the reference file is {largest:.2e}, above {FREEZE_TOLERANCE:.0e}"
+
+
+def _require_binary(name, values, length):
+    values = np.asarray(values)
+    if values.ndim != 1 or len(values) != length:
+        raise ValueError(f"{name} must be one-dimensional and the same length as ranks")
+    if values.dtype.kind not in "biuf" or not np.isin(values, (0, 1)).all():
+        raise ValueError(f"{name} must hold only 0 and 1")
+    return values.astype(np.int64)
+
+
+def uplift_at_k_by_rank(ranks, treatment, target, percent):
+    """Treated purchase rate minus control purchase rate in the best `percent` of the given ranks.
+
+    Selection goes through `select_by_rank`, so it works on full sets and on bootstrap resamples.
+    A group missing either arm stops, because its uplift is undefined.
+    """
+    ranks = _require_ranks(ranks)
+    arm = _require_binary("treatment", treatment, len(ranks))
+    outcome = _require_binary("target", target, len(ranks))
+    mask = select_by_rank(ranks, percent)
+    treated, control = mask & (arm == 1), mask & (arm == 0)
+    if not treated.any() or not control.any():
+        raise ValueError(f"The top {percent}% holds only one arm, so its uplift is undefined")
+    return outcome[treated].sum() / treated.sum() - outcome[control].sum() / control.sum()
+
+
+def overall_difference(treatment, target):
+    """Treated purchase rate minus control purchase rate over all rows given, with the same checks as Uplift@K."""
+    arm = np.asarray(treatment)
+    arm = _require_binary("treatment", arm, arm.size)
+    outcome = _require_binary("target", target, len(arm))
+    treated, control = arm == 1, arm == 0
+    if not treated.any() or not control.any():
+        raise ValueError("Both arms are needed for the overall difference")
+    return outcome[treated].sum() / treated.sum() - outcome[control].sum() / control.sum()
+
+
+def uplift_at_budgets(ranks, treatment, target, percents):
+    """`uplift_at_k_by_rank` at several budgets from one sort. Returns {percent: uplift} in the order given.
+
+    It takes prefixes of the same stable sort that `select_by_rank` uses, so the groups are identical.
+    """
+    ranks = _require_ranks(ranks)
+    arm = _require_binary("treatment", treatment, len(ranks))
+    outcome = _require_binary("target", target, len(ranks))
+    if not isinstance(percents, (list, tuple)) or len(percents) == 0 or len(set(percents)) != len(percents):
+        raise ValueError("percents must be a non-empty list or tuple of distinct budgets")
+
+    order = np.argsort(ranks, kind="stable")
+    treated_seen = np.cumsum(arm[order])
+    treated_bought = np.cumsum((arm * outcome)[order])
+    control_bought = np.cumsum(((1 - arm) * outcome)[order])
+
+    results = {}
+    for percent in percents:
+        last = _group_size(len(ranks), percent) - 1
+        n_treated = int(treated_seen[last])
+        n_control = last + 1 - n_treated
+        if n_treated == 0 or n_control == 0:
+            raise ValueError(f"The top {percent}% holds only one arm, so its uplift is undefined")
+        results[percent] = treated_bought[last] / n_treated - control_bought[last] / n_control
+    return results
+
+
+def stratified_resample_indices(treatment, n_resamples, seed):
+    """Yield bootstrap row indices one resample at a time, from a new `default_rng(seed)`.
+
+    Each resample draws, with replacement, as many treated rows as there are treated rows and as many
+    control rows as there are control rows: treated draws first, then control draws.
+    """
+    arm = np.asarray(treatment)
+    if arm.ndim != 1 or set(np.unique(arm).tolist()) != {0, 1}:
+        raise ValueError("treatment must be one-dimensional and hold both 0 and 1, and nothing else")
+    if isinstance(n_resamples, (bool, np.bool_)) or not isinstance(n_resamples, (int, np.integer)) or n_resamples < 1:
+        raise ValueError("n_resamples must be a positive whole number")
+    if isinstance(seed, (bool, np.bool_)) or not isinstance(seed, (int, np.integer)) or seed < 0:
+        raise ValueError("seed must be a non-negative whole number, so resamples are reproducible")
+
+    treated_rows, control_rows = np.flatnonzero(arm == 1), np.flatnonzero(arm == 0)
+
+    def resamples():
+        rng = np.random.default_rng(seed)
+        for _ in range(int(n_resamples)):
+            yield np.concatenate(
+                (
+                    treated_rows[rng.integers(0, len(treated_rows), len(treated_rows))],
+                    control_rows[rng.integers(0, len(control_rows), len(control_rows))],
+                )
+            )
+
+    return resamples()
+
+
+def treated_share_band(size):
+    """Half-width of the treated-share band: 3.5 binomial standard errors around 50%, sqrt(0.25 / size)."""
+    if isinstance(size, (bool, np.bool_)) or not isinstance(size, (int, np.integer)) or size < 1:
+        raise ValueError("size must be a positive whole number")
+    return 3.5 * float(np.sqrt(0.25 / size))

@@ -1,0 +1,10 @@
+variable,column,method,tertile,development_share
+recency,days_since_last_purchase,value,1,0.37909530028556965
+recency,days_since_last_purchase,value,2,0.29679249645381206
+recency,days_since_last_purchase,value,3,0.32411220326061824
+frequency,txn_count_hist,value,1,0.34345220613506133
+frequency,txn_count_hist,value,2,0.3324418393936175
+frequency,txn_count_hist,value,3,0.3241059544713212
+monetary,spend_hist,value,1,0.33333541626309904
+monetary,spend_hist,value,2,0.3333291674738019
+monetary,spend_hist,value,3,0.33333541626309904
