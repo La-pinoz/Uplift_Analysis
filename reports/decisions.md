@@ -1262,7 +1262,7 @@ All six segments show a positive difference after correction. The two lowest are
 
 ## Phase 6 status
 
-**Rules written, not yet run.** Phase 6 turns the Phase 5 results into a budget recommendation, in `notebooks/05_business_recommendations.ipynb` and `reports/decision_memo.md`. The models, features, scores and Phase 5 results are not changed.
+**Complete.** The rules were committed in `37ac8a5` before any Phase 6 quantity was calculated, with one approved correction to recorded hashes. Results are under "Phase 6 results", and the memo is `reports/decision_memo.md`. Phase 6 turns the Phase 5 results into a budget recommendation, in `notebooks/05_business_recommendations.ipynb`. The models, features, scores and Phase 5 results are not changed.
 
 ## Rules for Phase 6
 
@@ -1294,11 +1294,13 @@ Stage 2 results cannot change any choice in this section. If a rule proves unwor
 
 | File | SHA-256 of the LF content |
 |---|---|
-| `holdout_strategy_results.csv` | `d2b1c157d5910c85573aba64ccded74d36411fe6cf7e46c8d89dbecf58cafb0d` |
-| `oof_strategy_results.csv` | `b2f77cc35418f0b7698501f9c70c5fae5b5fc756b79938c7ac5de2c0fa7d663f` |
-| `primary_result.csv` | `3a0ea5f934e28c3924ee668da599587934b858034ee8e13dbe40b279521c818c` |
+| `holdout_strategy_results.csv` | `12734dd300e96f46018706e062850433b940cb602a46124aa2b64441fc4b8135` |
+| `oof_strategy_results.csv` | `c439298cb7acaccc27a3f3f9e8386f60db41b7cd607209deab6e8f2ef9958387` |
+| `primary_result.csv` | `b2b2a9ecbdb6cc7dae68eb5e2b950652c3dbb3367ef846726f7d259eeb87ca87` |
 
 - **Lock commit:** `primary_result.csv` must record lock commit `8c468b5`.
+
+**Correction to the Phase 6 rules, approved by the project owner on 2026-11-08:** the hashes first committed above, in `37ac8a5`, were taken from the raw files, which have CRLF line endings, although the rule describes the hash of the LF content. They were `d2b1c157d5910c85573aba64ccded74d36411fe6cf7e46c8d89dbecf58cafb0d`, `b2f77cc35418f0b7698501f9c70c5fae5b5fc756b79938c7ac5de2c0fa7d663f` and `3a0ea5f934e28c3924ee668da599587934b858034ee8e13dbe40b279521c818c`, in the order of the table. The guard stopped on the first table before any Phase 6 quantity was calculated. The values above are the LF hashes, and each equals the hash of the same file as committed in Phase 5, `b987a94`, so the tables have not changed. This corrects a recording error. The rule itself is unchanged.
 
 ### Cost scenarios and net value
 
@@ -1383,3 +1385,73 @@ Any number with an assumed input is labelled Assumed.
 | Three labels | Any number with an assumed input is labelled Assumed | The plan did not say how to label a number built from measured and assumed parts |
 | Not in the plan | A recommendation rule, a close call flag and a holdout check, all set in advance | The plan did not say how a recommendation would be chosen |
 | One-page memo | At most 450 words, at most two tables and one linked figure | Markdown has no page size, so the limit needed to be testable |
+
+## Phase 6 results
+
+From `notebooks/05_business_recommendations.ipynb`. Incremental purchasers are **Measured** in Phase 5, on the 160,031 pooled out-of-fold rows or the 40,008 holdout customers. Every net value, break-even point and recommendation is **Assumed**, because it uses an assumed cost-to-margin ratio `r`. Net values are per 100,000 customers, in purchaser-equivalents, with 95% intervals. Causal readings depend on the assignment assumption.
+
+### Checks
+
+| Check | Result |
+|---|---|
+| Known-answer checks on the helpers | All passed |
+| Hashes of the three Phase 5 tables, LF content | All three match the corrected record |
+| Lock commit in `primary_result.csv` | `8c468b5` |
+| Development rows | 160,031, all `split = 'development'`, the same IDs as `scores_oof.parquet`, 79,985 treated and 80,046 control |
+| Budget curve at the locked points against the Phase 5 out-of-fold table | Match within 1e-12, including Random and contact everyone |
+| Memo rules | 348 words outside the title and tables, 2 tables, 1 figure link, sections in order, headline and assignment wording verbatim, no method terms, every recommendation number and switching point matches |
+| Reproducibility | A second full run gave byte-identical copies of all five Phase 6 tables |
+
+No holdout score or holdout label was loaded.
+
+### Recommendation
+
+| Scenario | Choice | Out-of-fold net value | Runner-up, out-of-fold | Close call | Holdout net value at the choice | Holdout's best candidate |
+|---|---|---:|---|---|---:|---|
+| Optimistic, `r` = 1% | Contact everyone | +2,323 (+1,857 to +2,782) | Top 30%, +1,462 | No | +2,324 (+1,319 to +3,274) | Contact everyone, the same |
+| Moderate, `r` = 3% | Top 30% by estimated uplift | +862 (+580 to +1,119) | Top 20%, +824 | Yes | +524 (-17 to +1,049) | Top 10%, +802, **differs** |
+| Conservative, `r` = 5% | Top 10% by estimated uplift | +428 (+278 to +582) | Top 20%, +424 | Yes | +602 (+281 to +898) | Top 10%, the same |
+
+Under the rule, the out-of-fold choice stands in the moderate scenario, where the holdout ranks the top 10% higher. The holdout interval at the top 30% includes zero there. The memo states both.
+
+### Break-even curve
+
+Best candidate by out-of-fold net value, as `r` rises from 0 to 12 points. The switching points are exact crossings of the candidates' straight lines.
+
+| `r` range | Best candidate |
+|---|---|
+| 0 to 2.23% | Contact everyone |
+| 2.23% to 3.38% | Top 30% |
+| 3.38% to 4.96% | Top 20% |
+| 4.96% to 6.99% | Top 10% |
+| 6.99% to 11.57% | Top 5% |
+| Above 11.57% | Contact no one |
+
+Contact everyone beats every targeted budget only while `r` is below 2.23%. Each switching point is the uplift of the band between two locked budgets, computed from the Phase 5 per-100,000 values. The band uplifts below are computed directly on band rows, so they differ slightly, because the arm split within a band is not exactly even.
+
+### Band uplift, context
+
+Treated rate minus control rate among the out-of-fold customers in each band, in points.
+
+| Band | Uplift strategy | Response strategy |
+|---|---:|---:|
+| 0–5% | +11.57 | +0.31 |
+| 5–10% | +7.01 | +2.33 |
+| 10–20% | +4.98 | +1.61 |
+| 20–30% | +3.37 | +2.38 |
+| 30–100% | +2.16 | +3.91 |
+
+For the uplift strategy, band uplift falls steadily from the top band down. For the response strategy, the customers it leaves out, the 30–100% band, have the highest uplift. The chart is `outputs/figures/net_value_by_budget.png`, and the break-even chart is `outputs/figures/break_even_curve.png`.
+
+### Added in Stage 2
+
+These change no choice in "Rules for Phase 6":
+
+- **Exact switching points** on the break-even curve, from the crossing of two straight lines, beside the 0.1-point grid.
+- **Memo checks** in the notebook, so a rerun tests the memo rules and its numbers against the calculation.
+
+### What Phase 6 does not show
+
+- **Money:** no currency values. Each reader supplies their own cost-to-margin ratio.
+- **Model uncertainty:** net value intervals cover the evaluation sample only, not refitting the models.
+- **Close calls:** in the moderate and conservative scenarios the runner-up lies inside the choice's interval, so the data do not clearly separate those budgets.

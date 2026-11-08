@@ -1,0 +1,11 @@
+strategy,band,low_pct,high_pct,customers,treated,control,treated_rate,control_rate,uplift_pts,above_r_optimistic,above_r_moderate,above_r_conservative,label
+Uplift,0-5%,0,5,8002,4000,4002,0.5485,0.43278360819590206,11.571639180409793,True,True,True,Context (Measured out-of-fold; comparison with r Assumed)
+Uplift,5-10%,5,10,8001,3984,4017,0.5594879518072289,0.4894199651481205,7.006798665910841,True,True,True,Context (Measured out-of-fold; comparison with r Assumed)
+Uplift,10-20%,10,20,16003,7903,8100,0.5572567379476149,0.5074074074074074,4.984933054020746,True,True,False,Context (Measured out-of-fold; comparison with r Assumed)
+Uplift,20-30%,20,30,16003,7946,8057,0.5923735212685628,0.5586446568201564,3.3728864448406393,True,True,False,Context (Measured out-of-fold; comparison with r Assumed)
+Uplift,30-100%,30,100,112022,56152,55870,0.6656396922638552,0.6440128870592446,2.1626805204610577,True,False,False,Context (Measured out-of-fold; comparison with r Assumed)
+Response,0-5%,0,5,8002,4028,3974,0.9751737835153923,0.9720684448917967,0.31053386235956326,False,False,False,Context (Measured out-of-fold; comparison with r Assumed)
+Response,5-10%,5,10,8001,4003,3998,0.9542842867849113,0.9309654827413707,2.3318804043540586,True,False,False,Context (Measured out-of-fold; comparison with r Assumed)
+Response,10-20%,10,20,16003,8079,7924,0.8993687337541775,0.8832660272589601,1.610270649521739,True,False,False,Context (Measured out-of-fold; comparison with r Assumed)
+Response,20-30%,20,30,16003,7925,8078,0.8329337539432177,0.8091111661302303,2.3822587812987406,True,False,False,Context (Measured out-of-fold; comparison with r Assumed)
+Response,30-100%,30,100,112022,55950,56072,0.5236103663985702,0.48455557140818944,3.905479499038073,True,True,False,Context (Measured out-of-fold; comparison with r Assumed)
