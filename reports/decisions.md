@@ -1259,3 +1259,127 @@ All six segments show a positive difference after correction. The two lowest are
 - **Model uncertainty:** the intervals cover the evaluation sample only, not refitting the models.
 - **Other budgets:** only the 20% comparison carries a conclusion. The others are secondary or exploratory.
 - **Population:** the results apply to the labelled cohort only.
+
+## Phase 6 status
+
+**Rules written, not yet run.** Phase 6 turns the Phase 5 results into a budget recommendation, in `notebooks/05_business_recommendations.ipynb` and `reports/decision_memo.md`. The models, features, scores and Phase 5 results are not changed.
+
+## Rules for Phase 6
+
+**When these rules were written:** on 2026-11-08, after every Phase 5 result in this log was known, including the holdout strategy table. They were not written blind to those values. Approximate net values at the locked budgets, which follow by arithmetic from the Phase 5 tables, were looked at while the rules were discussed. No Phase 6 table, curve or recommendation had been calculated. The commit that adds this section is the record of that order.
+
+### Order of work
+
+1. **Stage 1, rules:** add this section to this log, ending at a commit.
+2. **Stage 2, analysis and memo:** build the notebook, the tables and figures below and `reports/decision_memo.md`, then record the results under "Phase 6 results". This ends at a commit.
+
+Stage 2 results cannot change any choice in this section. If a rule proves unworkable, it can be changed only with the project owner's approval, with the old rule, the new rule and the reason recorded here.
+
+**Scope:** Phase 6 covers the notebook, the memo and this log. The README, its "Future work" section, the CV bullets and the final clean rerun from raw data are a separate closing step.
+
+### Data
+
+| Source | Use |
+|---|---|
+| `outputs/tables/holdout_strategy_results.csv` | Holdout Uplift@K and incremental purchasers per 100,000, with intervals, for every strategy at 5%, 10%, 20% and 30%, plus contact everyone |
+| `outputs/tables/oof_strategy_results.csv` | The same, on the 160,031 pooled out-of-fold rows |
+| `outputs/tables/primary_result.csv` | The headline comparison |
+| `data/processed/scores_oof.parquet`, with development labels | The out-of-fold context results only |
+
+### Holdout guard
+
+- **No new holdout outcome calculation.** The notebook never loads `scores_holdout.parquet` or any holdout `treatment_flg` or `target`. Holdout values enter only through the saved Phase 5 tables above.
+- **Development labels:** loaded only for rows with `split = 'development'` in `splits.parquet`. The notebook asserts 160,031 rows with exactly the `client_id` values in `scores_oof.parquet`.
+- **Saved tables:** each of the three CSVs must match the SHA-256 below, calculated after converting CRLF line endings to LF so that a Windows checkout gives the same value. A mismatch stops the run.
+
+| File | SHA-256 of the LF content |
+|---|---|
+| `holdout_strategy_results.csv` | `d2b1c157d5910c85573aba64ccded74d36411fe6cf7e46c8d89dbecf58cafb0d` |
+| `oof_strategy_results.csv` | `b2f77cc35418f0b7698501f9c70c5fae5b5fc756b79938c7ac5de2c0fa7d663f` |
+| `primary_result.csv` | `3a0ea5f934e28c3924ee668da599587934b858034ee8e13dbe40b279521c818c` |
+
+- **Lock commit:** `primary_result.csv` must record lock commit `8c468b5`.
+
+### Cost scenarios and net value
+
+| Scenario | `r = c / m` | Label |
+|---|---:|---|
+| Optimistic | 1% | Assumed |
+| Moderate | 3% | Assumed |
+| Conservative | 5% | Assumed |
+
+- **No currency:** the scenarios are cost-to-margin ratios only. No SMS price, margin or basket value is researched or used.
+- **Net value per 100,000 customers, in purchaser-equivalents:** incremental purchasers per 100,000 minus `100,000 x K x r`. This is the plan's net value divided by `m`, so one purchaser-equivalent is the margin of one incremental purchaser. A positive value means contact is worthwhile under that scenario.
+- **Interval:** the Phase 5 per-100,000 interval minus the same `100,000 x K x r`. For a fixed `r` the cost term is the same in every resample, so this is exact and needs no new bootstrap.
+- **Contact no one:** a net value of 0, with no interval.
+- **Coverage:** net value is reported for every strategy and locked budget, and for contact everyone, on both evaluation sets.
+
+### Recommendation rule
+
+For each scenario:
+
+1. **Candidates:** the uplift strategy at 5%, 10%, 20% and 30%, contact everyone at 100%, and contact no one at 0%. These are the locked points, so every choice has a holdout value. Response and Random are reported but are not candidates.
+2. **Choice:** the candidate with the highest out-of-fold net value, by point estimate. If no candidate that contacts customers has a positive net value, the choice is contact no one. An exact tie goes to the smaller budget.
+3. **Close call:** the runner-up is the candidate with the second-highest out-of-fold net value. The choice is marked as a close call when the runner-up's point estimate lies inside the chosen candidate's out-of-fold 95% net value interval, ends included. If the choice is contact no one, it is a close call when the runner-up's interval includes zero. This is reported only and never breaks a tie or changes the choice.
+4. **Holdout check:** the holdout net value at the chosen point is reported with its interval, together with the candidate that has the highest holdout net value under the same rule. If they differ, the memo says so plainly. The out-of-fold choice stands, in line with the Phase 5 rule that disagreements are reported as they are.
+
+### Context results
+
+These use the pooled out-of-fold rows only, have no intervals and are labelled context. They never choose the recommendation.
+
+- **Budget curve:** Uplift@K and net value under each scenario for the uplift and response strategies, from 5% to 100% in 5% steps, through `score_ranks` and `uplift_at_k_by_rank`. Values at 5%, 10%, 20%, 30% and 100% must match `oof_strategy_results.csv` within 1e-12, or the run stops. Random appears as its straight-line expected value.
+- **Band uplift:** for the uplift and response strategies, the treated purchase rate minus the control purchase rate among the rows in each band between locked points: 0–5%, 5–10%, 10–20%, 20–30% and 30–100%. A band is the top K2% minus the top K1% from `select_by_rank` on the same ranks. Each band is compared with each scenario's `r`.
+- **Break-even curve:** `r` from 0 to the highest out-of-fold Uplift@K at any locked point across all strategies, rounded up to the next whole point. That is 11.57 points, for the uplift strategy at 5%, so the range is 0 to 12 points, in steps of 0.1 point. For each `r`, the curve shows each candidate's out-of-fold net value and marks the best one, so the points where contact everyone stops being best and where contact no one starts are both visible.
+
+### Outputs
+
+| File | Contents |
+|---|---|
+| `outputs/tables/net_value_scenarios.csv` | Net value with intervals, for each set, strategy, budget and scenario |
+| `outputs/tables/recommendation.csv` | For each scenario: the choice, its out-of-fold and holdout net values with intervals, the runner-up, the close call flag and the holdout's best candidate |
+| `outputs/tables/oof_budget_curve.csv` | The budget curve |
+| `outputs/tables/oof_band_uplift.csv` | The band uplift |
+| `outputs/tables/break_even_curve.csv` | The break-even curve |
+| `outputs/figures/net_value_by_budget.png` | One panel per scenario: out-of-fold context lines for uplift, response and random, holdout values at the locked points with intervals, and the choice marked |
+| `outputs/figures/break_even_curve.png` | The break-even curve |
+
+### Labels
+
+| Number | Label |
+|---|---|
+| Uplift@K, incremental purchasers per 100,000 and band uplift | **Measured**, naming holdout or out-of-fold |
+| `r` and each scenario | **Assumed** (c/m = x%) |
+| Net value, break-even points and each recommendation row | **Assumed**, naming its measured input, for example "Assumed (Measured out-of-fold Uplift@K, c/m = 3%)" |
+| Raw `tau` | Not used for business numbers. If quoted, **Estimated from the model** |
+
+Any number with an assumed input is labelled Assumed.
+
+### Decision memo
+
+| Item | Rule |
+|---|---|
+| Reader | A CRM or marketing manager |
+| Length | At most 450 words, counting everything except the title and the tables, checked with a word count in Stage 2 |
+| Tables | At most two: the conditional recommendation table and the measured-versus-assumed table |
+| Figure | At most one, linked rather than embedded |
+| Sections, in order | 1. Recommendation, 2. Evidence, 3. Measured results vs assumptions, 4. Limitations, 5. Next step |
+| Recommendation | A three-row conditional table, one row per scenario, each labelled Assumed (c/m = x%), with the choice, its out-of-fold and holdout net values with intervals, and any close call or holdout disagreement. It points the reader to the break-even curve to place their own ratio. There is no base case |
+| Headline | "At a 20% budget, targeting by estimated uplift produced about 1,010 more extra purchasers per 100k customers than targeting by purchase likelihood (95% range +510 to +1,467)", labelled **Measured (holdout)** |
+| Assignment | The Phase 1 wording, verbatim: "Observed checks are consistent with random assignment, but randomisation is not documented. Causal claims depend on that assumption." |
+| Method terms | None in the body. A single "Method" line links to the notebooks and this log |
+| Limitations | Assignment evidence, the undocumented outcome window, no revenue or margin, no opt-outs or long-term effects, the labelled cohort only, intervals that do not cover refitting the models, and assumed cost scenarios |
+| Next step | A randomised test of "top K by uplift" against contact everyone or random targeting, with revenue tracked and a documented outcome window |
+
+## Where Phase 6 departs from the plan
+
+| Plan | This analysis | Why |
+|---|---|---|
+| Replace placeholder costs with researched values if a credible source exists | Cost-to-margin ratios only, with no currency | The outcome is whether a customer purchased, not spend, and the outcome window is undocumented, so margin per incremental purchaser cannot be known from this data. A researched price or basket value would make currency figures look measured |
+| Net value in money | Net value in purchaser-equivalents | It needs only the ratio `c / m` |
+| Incremental purchasers for each strategy and budget, with intervals | Taken from the saved Phase 5 tables, with net value intervals by an exact shift | No new holdout outcome calculation, and no new bootstrap is needed |
+| Plot net value by budget | Out-of-fold curve in 5% steps as context, with the choice limited to locked points | Every choice then has a holdout value, and choosing from a finer grid would select on noise |
+| Compare each budget band's uplift with break-even | Out-of-fold band uplift as context. The choice uses net value at locked points | Net value at the locked points already accounts for every band below the chosen budget |
+| Identify when contact everyone beats targeting | The break-even curve from 0 to the highest locked-point Uplift@K | It shows both the contact everyone and the contact no one boundaries |
+| Three labels | Any number with an assumed input is labelled Assumed | The plan did not say how to label a number built from measured and assumed parts |
+| Not in the plan | A recommendation rule, a close call flag and a holdout check, all set in advance | The plan did not say how a recommendation would be chosen |
+| One-page memo | At most 450 words, at most two tables and one linked figure | Markdown has no page size, so the limit needed to be testable |
