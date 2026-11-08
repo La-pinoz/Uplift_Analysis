@@ -1455,3 +1455,21 @@ These change no choice in "Rules for Phase 6":
 - **Money:** no currency values. Each reader supplies their own cost-to-margin ratio.
 - **Model uncertainty:** net value intervals cover the evaluation sample only, not refitting the models.
 - **Close calls:** in the moderate and conservative scenarios the runner-up lies inside the choice's interval, so the data do not clearly separate those budgets.
+
+## Clean rerun record
+
+On 2026-11-08, after the Phase 6 commit `17248c6`, all five notebooks ran in order from `data/raw/`. They used a fresh virtual environment built from `requirements.txt` on Python 3.13.5. `data/processed/` and `models/` were moved aside first, so every Parquet file and model was regenerated. No check stopped.
+
+| Item | Result |
+|---|---|
+| Run time | 01: 1 min, 02: 3 min, 03: 13 min, 04: 14 min, 05: under 1 min |
+| Split | Matched the recorded SHA-256 |
+| Holdout scores | Both freeze checks: "proceed. The recorded hash matches" |
+| Scores, split and labels against the earlier run | `scores_oof`, `scores_holdout`, `splits` and `uplift_train` exactly identical |
+| Feature tables against the earlier run | Largest absolute difference 1.75e-10, most likely from summation order in DuckDB's parallel aggregation |
+| Committed outputs | Every result table and every figure byte-identical. Seven descriptive tables differ only in trailing floating-point digits: `amount_reconciliation`, `disagreement_profile`, `feature_balance`, `feature_profile`, `m0_feature_importance`, `response_feature_importance` and `rfm_cut_points` |
+| Values quoted in this log | None changed |
+
+The holdout evaluation was re-executed as a reproduction under the Phase 5 rule that a rerun must reproduce the recorded holdout values. It did, so the recorded result stands unchanged.
+
+The README now states that `outputs/tables/holdout_scores_reference.csv` serves as the holdout freeze record, as "For the README" requires.

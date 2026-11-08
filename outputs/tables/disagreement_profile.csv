@@ -1,5 +1,5 @@
 quadrant,days_since_last_purchase_mean,days_since_last_purchase_median,txn_count_hist_mean,txn_count_hist_median,spend_hist_mean,spend_hist_median
-"Likely buyers, more apparent SMS effect",2.7885467659241665,2.0,22.977724994930917,21.0,9212.051837615501,7040.99
-"Likely buyers, less apparent SMS effect",2.1237553030136502,1.0,36.8815641966896,32.0,14782.783932473129,12191.41
+"Likely buyers, more apparent SMS effect",2.7885467659241665,2.0,22.977724994930917,21.0,9212.051837615501,7040.990000000001
+"Likely buyers, less apparent SMS effect",2.1237553030136502,1.0,36.8815641966896,32.0,14782.783932473129,12191.409999999998
 Possible persuadables,9.069615105620645,8.0,8.612665684830633,8.0,4302.481940518322,3237.0
 "Less likely buyers, less apparent SMS effect",9.514020045188575,9.0,10.3315566884885,9.0,5453.396372458144,4040.01
