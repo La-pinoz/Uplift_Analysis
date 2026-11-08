@@ -815,3 +815,220 @@ The Spearman correlation is -0.131 pooled out-of-fold and -0.128 on the holdout,
 - **Scoring:** every fold model trains through one function, which asserts that its training rows come from one arm and share no `client_id` with the fold it scores. Every development row is scored once, in its own fold. All 200,039 customers appear exactly once across the two score files.
 - **Row alignment:** rescoring each saved file after a join by `client_id` reproduced its scores exactly, and every `tau` is the exact 64-bit difference.
 - **Shared code:** the known-answer checks on `notebooks/targeting.py` passed, including the two carried review items that reject bad ranks and non-numeric scores.
+
+## Phase 5 status
+
+**Stage 1: rules written.** No Phase 5 result exists. Phase 5 asks whether ranking by `tau` finds more incremental purchasers than ranking by `m1`, in `notebooks/04_policy_evaluation.ipynb`, using the scores frozen in Phase 4. The models, features and scores are not changed.
+
+## Rules for Phase 5
+
+These rules were written before any targeting result existed, on out-of-fold or holdout rows. The commit that adds this section is the record of that order. The "Rules carried into Phase 5" above still apply.
+
+### Order of work
+
+1. **Stage 1, rules:** add this section to this log, ending at a commit.
+2. **Stage 2, development:** on out-of-fold development rows only, run the sanity checks, the strategy comparison, the disagreement analysis and the RFM cut points, then record them under "Phase 5 development results" and "Phase 5 lock record". This ends at a commit, which is the **lock commit**.
+3. **Stage 3, holdout:** after the lock commit, run the freeze check, the holdout arm balance, the holdout evaluation once and the segment effects, then record the results. This ends at a commit.
+
+Stage 2 results cannot change any choice in this section. If a Stage 2 check stops, the code is fixed and the rules stay as written. If a rule itself proves unworkable, it can be changed only with the project owner's approval, before Stage 3, with the old rule, the new rule and the reason recorded here.
+
+### Primary comparison
+
+| Item | Rule |
+|---|---|
+| Rows | The 40,008 holdout customers |
+| Statistic | Uplift@20 of the uplift strategy minus Uplift@20 of the response strategy, in percentage points |
+| Alongside it | The same difference in incremental purchasers per 100,000 customers, `100,000 x 0.20 x difference`, so 1 point is 200 per 100,000 |
+| Interval | Two-sided 95% paired percentile bootstrap interval, as set out under "Bootstrap" |
+| Decision | Applied only to this comparison, as in the table below |
+
+| Paired 95% interval for uplift minus response | Conclusion |
+|---|---|
+| Entirely above zero | Uplift targeting performed better at the 20% budget |
+| Includes zero, including an end exactly at zero | The evidence does not separate the two strategies at this budget |
+| Entirely below zero | Response targeting performed better at the 20% budget |
+
+A two-sided 95% interval entirely above zero corresponds to a one-sided test of H0 at 2.5%.
+
+**Expected precision, Estimated before any result:** the interval on the difference should be about ±3 points wide, from ±2.8 to ±3.0 for overlap of 0% to 15% between the two top-20% lists. A true difference has an 80% chance of producing an interval entirely above zero only if it is about 4.0 to 4.3 points or more, for that same overlap range, so "does not separate" is a likely outcome. Assumptions: purchase rates in each top 20% near the overall development rates (63.65% treated, 60.33% control), an even arm split within each list, and customers on both lists cancelling out. The Phase 4 Spearman correlation of -0.128 between `m1` and `tau` on the holdout suggests low overlap.
+
+### Strategies and metrics
+
+| Strategy | Selection | Budgets |
+|---|---|---|
+| Random | Expected value of random targeting, below | 5%, 10%, 20%, 30% |
+| Response | Highest `m1_score`, through `select_top_k` | 5%, 10%, 20%, 30% |
+| Uplift | Highest `tau`, through `select_top_k` | 5%, 10%, 20%, 30% |
+| Contact everyone | All rows | 100% |
+
+- **Uplift@K:** within the top K%, the treated purchase rate minus the control purchase rate, as in scikit-uplift's `overall` strategy. A group with no treated or no control rows stops the run.
+- **Group sizes:** from `select_top_k`. On the holdout they are 2,000, 4,001, 8,002 and 12,002 at 5%, 10%, 20% and 30%. On the out-of-fold rows they are 8,002, 16,003, 32,006 and 48,009.
+- **Incremental purchasers per 100,000:** `100,000 x K x Uplift@K`. For contact everyone, `100,000 x` the overall difference.
+- **Random:** its value is the overall treated-minus-control difference on the same rows, which is the expected Uplift@K of a random top K% at any budget. In each bootstrap resample it is that resample's overall difference. It is labelled "expected value of random targeting", and its interval leaves out the noise of a single random draw, which a real random campaign would also have.
+- **Contact everyone:** the same overall difference, at 100%.
+- **Not a second campaign effect:** on holdout rows, Random and contact everyone use the holdout's overall difference only as the reference point for strategies on the same rows. The campaign effect remains the Phase 1 difference on all 200,039 customers, in line with the Phase 1 decision of no separate holdout estimate, and the holdout figure is never reported as the campaign effect.
+- **Qini and AUUC:** `qini_auc_score(y_true, uplift, treatment)` with its default `negative_effect=True`, and `uplift_auc_score(y_true, uplift, treatment)`, from scikit-uplift 0.5.1. Both are normalised by scikit-uplift, so random ranking scores near zero. They are computed for the response and uplift strategies, use the score values directly, and leave ties to scikit-uplift rather than to `select_top_k`.
+- **Curves:** Qini and uplift curves for the response and uplift strategies, with the random line, are drawn with Matplotlib from `qini_curve` and `uplift_curve` in `sklift.metrics`. `sklift.viz` fails to import with the installed scikit-learn, because `check_matplotlib_support` is missing, so it is not used.
+
+### Results reported, and how they are labelled
+
+On holdout rows and, separately, on pooled out-of-fold rows:
+
+- Uplift@K and incremental purchasers per 100,000 for each strategy and budget, plus contact everyone, each with its interval
+- Paired differences for uplift minus response, uplift minus random and response minus random, at each budget
+- Qini and AUUC for the response and uplift strategies, each with its interval, plus the paired uplift minus response difference
+
+| Result | Label |
+|---|---|
+| Holdout, uplift minus response at 20% | **Primary**, with the decision rule |
+| Every other result at 10%, 20% or 30%, and every Qini and AUUC result | **Secondary** |
+| Every result at 5% | **Exploratory** |
+
+Secondary and exploratory results get no multiplicity correction and no conclusion wording, and none of them can override the primary result. Any disagreement between holdout and out-of-fold results is reported as it is.
+
+**Out-of-fold view:** the main development view ranks all 160,031 pooled out-of-fold rows together, because Phase 4 found that no fold dominates the top 20%. A per-fold table adds, for each fold, Uplift@20 for each strategy and their difference, ranking each fold's own rows with `select_top_k`. That table is report only, with no interval and no stop rule.
+
+All Uplift@K and Qini values are **Measured** on the stated rows. Contact everyone and Random are **Measured** overall differences.
+
+### Bootstrap
+
+| Item | Rule |
+|---|---|
+| Resamples | Exactly 2,000 for every interval, with no increase if results look unstable |
+| Random numbers | A new `numpy.random.default_rng(42)` for each evaluation set, used for these resamples and nothing else |
+| Stratification | Each resample draws, with replacement, as many treated rows as the set has treated rows and as many control rows as it has control rows |
+| Shared resamples | The loop runs one resample at a time. Each resample's indices are drawn once and used for every strategy, budget and metric before the next resample is drawn, so every difference is paired and the indices are never all held in memory |
+| Selection in a resample | Each score's ranks come from `score_ranks` on the full set. A resample uses `select_by_rank` on the resampled ranks, so it takes the top K% of its own rows. A helper may sort once and take several budgets, if a known-answer check shows it gives exactly the `select_by_rank` groups |
+| Interval | The 2.5th and 97.5th percentiles from `numpy.percentile` with its default method. The point estimate comes from the original rows |
+
+**Limit:** the intervals capture uncertainty from the evaluation sample, not from refitting the models.
+
+### Sanity checks
+
+These run on out-of-fold rows in Stage 2 and on holdout rows in Stage 3, before the strategy results are reported.
+
+| Check | Rule | If it fails |
+|---|---|---|
+| Shuffle check | At each budget, 1,000 random orderings from a new `numpy.random.default_rng(42)` for each evaluation set, kept apart from the bootstrap generator, each passed to `select_by_rank` as ranks. The mean Uplift@K must be within 4 Monte Carlo standard errors of the overall difference on the same rows, where one standard error is the SD across the shuffles divided by √1000 | Stop and investigate |
+| Match with scikit-uplift | For the response and uplift strategies at each budget, `uplift_at_k(y_true, -ranks, treatment, strategy='overall', k=size)` must equal the custom Uplift@K within 1e-12. `-ranks` contains no ties, so scikit-uplift's reversed sort keeps the `select_top_k` order, and the whole-number `k` avoids its rounding down | Stop and investigate |
+
+Because every generator is created where it is used and never shared, skipping or reordering a step cannot change any draw.
+
+This replaces "allow for ties" in "Comparing with scikit-uplift" above. The shuffle check tests the selection and Uplift@K code. It does not test the models.
+
+### Arm balance at other budgets
+
+The Phase 4 rule stays as written: SMD, SD ratio and a 48% to 52% treated share of the top 20%. For `m1` and `tau` at 5%, 10% and 30%, the treated share must be within 3.5 binomial standard errors of 50% at that group size, where one standard error is `sqrt(0.25 / size)`.
+
+| Budget | Holdout band | Out-of-fold band |
+|---|---:|---:|
+| 5% | ±3.91 points | ±1.96 points |
+| 10% | ±2.77 points | ±1.38 points |
+| 30% | ±1.60 points | ±0.80 points |
+
+Outside the band, stop and investigate. It runs on out-of-fold rows in Stage 2 and on holdout rows in Stage 3, using `treatment_flg` but not `target`. A fixed 48% to 52% band would trigger by chance about 7% of the time at the 5% holdout size.
+
+This replaces "This balance check does not cover the other budgets" in "Rules carried into Phase 5" above. The bands are centred on 50%, as the project owner chose. Both evaluation sets have an overall treated share of 49.98%, so the offset is 0.02 points.
+
+### Disagreement analysis
+
+This uses pooled out-of-fold rows only, and there is no holdout version.
+
+- **Higher or lower:** "higher" is the top 50% of each score from `select_top_k`, so ties at the median follow the shared rule. That is 80,016 customers per score.
+- **Quadrants:** as in the plan, with these labels:
+
+| | Lower estimated uplift | Higher estimated uplift |
+|---|---|---|
+| **Higher purchase likelihood** | Likely buyers, less apparent SMS effect | Likely buyers, more apparent SMS effect |
+| **Lower purchase likelihood** | Less likely buyers, less apparent SMS effect | Possible persuadables |
+
+- **For each quadrant:** customer count, treated and control purchase rates, and observed uplift with an unpooled Wald 95% interval.
+- **Profile:** the mean and median of `days_since_last_purchase`, `txn_count_hist` and `spend_hist` in each quadrant, with no tests.
+- **List overlap:** at each budget, the share of the uplift list that is also in the response list. The two lists are the same size, so the share is the same in both directions.
+
+These are model-defined groups. They do not identify individual persuadable customers.
+
+### RFM segments
+
+| Item | Rule |
+|---|---|
+| Recency | `days_since_last_purchase`. A lower value is more recent |
+| Frequency | `txn_count_hist` |
+| Monetary | `spend_hist` |
+| Cut points | The 1/3 and 2/3 quantiles of each variable on the 160,031 development rows, from `numpy.quantile` with its default method, calculated in Stage 2 without outcomes |
+| Tertiles | 1 if the value is at most the first cut point, 2 if above it and at most the second, 3 if above the second. Tied customers share a tertile, so sizes can differ, and they are reported |
+| Recency groups | Tertile 1 is "Recent", 2 is "Moderately recent" and 3 is "Least recent" |
+| Higher frequency and monetary value | The mean of the frequency and monetary tertiles is above 2. A mean of exactly 2 counts as lower |
+| Missing values | None are expected, since every labelled customer has a purchase on or after 2019-02-24. Any null stops the run |
+| Applied to | All 200,039 customers, using the development cut points |
+
+| | Lower frequency and monetary value | Higher frequency and monetary value |
+|---|---|---|
+| **Recent** | Segment 1 | Segment 2 |
+| **Moderately recent** | Segment 3 | Segment 4 |
+| **Least recent** | Segment 5 | Segment 6 |
+
+**Fallback, set in advance:** if any tertile of recency, frequency or monetary value holds under 20% or over 50% of development rows, that variable uses rank-based tertiles instead. Development rows are sorted by value ascending, then `client_id` ascending. Rank `r`, counted from 0, goes to tertile `floor(3r / 160,031) + 1`. The cut points become the `(value, client_id)` pairs of the last development customer in tertiles 1 and 2. Every customer is placed by comparing their own `(value, client_id)` with those pairs in that order. Any variable that uses the fallback is logged under "Phase 5 lock record". Recency covers only 0 to 22 days, so it is the most likely to need it. **Limit:** under the fallback, customers with the same value can fall in different tertiles by `client_id` order. The results then say that the boundary group was split arbitrarily, and the segment names describe the group as a whole, not every customer in it.
+
+**Segment effects:** calculated once in Stage 3, on all 200,039 customers, as the overall difference was in Phase 1. They do not depend on the models.
+
+- **For each segment:** customer count, treated and control rates, the difference with an unpooled Wald 95% interval, and a two-sided pooled two-proportion z-test.
+- **Correction:** Benjamini-Hochberg at 5% across the six p-values, from `statsmodels.stats.multitest.multipletests(method='fdr_bh')`. Raw and adjusted p-values are both reported.
+- **Wording:** "significant" means a BH-adjusted p-value below 0.05. The Wald intervals are unadjusted, and the table says so.
+- **Limit:** a significant effect within one segment does not show that it differs from the other segments. No test between segments is run.
+- **No changes:** segments are not added or redefined after results are seen.
+
+### Holdout guard
+
+| Item | Rule |
+|---|---|
+| Switch | `RUN_HOLDOUT_EVALUATION = False` in the notebook's setup cell. It is set to `True` only after the project owner confirms the lock commit |
+| Lock record | The holdout section asserts that this log has a line reading exactly `### Phase 5 lock record`. Stage 2 adds it at that level, under a `## Phase 5 development results` heading |
+| Commit record | `LOCK_COMMIT_SHA` holds the lock commit hash the project owner provides. The holdout section asserts it is 7 to 40 hexadecimal characters, prints it, and Stage 3 records it with the results |
+| Nothing earlier | No holdout label, and no holdout score, is loaded before these assertions pass |
+
+The notebook does not run git. The project owner's commit is the record of the order.
+
+### Order within Stage 3
+
+Each step must pass before the next starts.
+
+1. Run the guard assertions.
+2. Load `scores_holdout.parquet`, assert the exact `tau`, and run `check_freeze` with `allow_first_run=False`. Proceed on a match, proceed with a warning within the tolerance, and stop otherwise.
+3. Load holdout `treatment_flg` without `target`. Run `arm_balance` on `m1`, `m0` and `tau`, then the treated-share bands at 5%, 10% and 30% for `m1` and `tau`.
+4. Load holdout `target`. Run the sanity checks, then the strategy results and the primary decision.
+5. Calculate the segment effects on all 200,039 customers.
+
+### If a bug is found after the holdout is opened
+
+The first complete holdout run is the recorded result. If a bug is found later, the code is fixed and both results are reported with the reason. The decision rule applies to the corrected result, which is labelled as a departure from the locked analysis. Locked choices such as the features, budgets, segments and primary comparison never change. If this ever happens, both results go into this log, the README and the decision memo.
+
+A later rerun from raw data must reproduce the recorded holdout values. If the freeze check warns, any small differences are reported rather than hidden.
+
+### Shared code added in Stage 2
+
+These go in `notebooks/targeting.py`, with known-answer checks in the notebook's setup cells, so that Phase 6 can reuse them.
+
+| Function | What it does |
+|---|---|
+| `uplift_at_k_by_rank(ranks, treatment, target, percent)` | Uplift@K for the rows given, through `select_by_rank`, so it works on full sets and resamples. It stops if either arm is missing from the group. Its name differs from scikit-uplift's `uplift_at_k`, so the match check cannot compare a function with itself |
+| `stratified_resample_indices(treatment, n_resamples, seed)` | The bootstrap indices described under "Bootstrap" |
+| `treated_share_band(size)` | The 3.5-standard-error band for a group size |
+
+## Where Phase 5 departs from the plan
+
+| Plan | This analysis | Why |
+|---|---|---|
+| About 1,000 resamples, more if unstable | Exactly 2,000, with seed 42 | "More if unstable" would allow resampling until a result looked better |
+| Bootstrap stratified by treatment group | The same, with each resample's top K% taken from its own rows through `select_by_rank` | The plan did not say how a resample selects its group |
+| Random strategy as randomly selected customers | Expected value of random targeting, the overall difference | A single random draw adds noise that has nothing to do with the comparison |
+| Shuffled scores close to the ATE | 1,000 shuffles, with a stop at 4 Monte Carlo standard errors | "Close" needed a test fixed in advance that scales with group size |
+| Custom Uplift@K matches scikit-uplift | Exact match, by passing `-ranks` and a whole-number group size | scikit-uplift rounds the group size down and orders ties differently |
+| No balance check at other budgets | Treated share at 5%, 10% and 30%, with bands scaled to group size | Item carried from the Phase 4 review |
+| Out-of-fold scores as one view | A pooled ranking, plus a report-only per-fold table | Five model pairs produced the scores |
+| Tertile thresholds for RFM | Defined columns, cut point rule, a tie rule and a fallback set in advance | Recency covers only 0 to 22 days, so ties could leave a tertile nearly empty |
+| Segment treatment effects | On all 200,039 customers, in Stage 3 | Segment effects do not select a model, so they are treated like the overall difference |
+| Lock before the final test | A switch, a lock record heading and the printed lock commit hash | The notebook cannot run git, so the holdout section checks what it can |
+| "Run this once" | A rule for bugs found after the holdout is opened | The plan did not say what to do then |
+| Curves from scikit-uplift | Drawn with Matplotlib from `sklift.metrics` | `sklift.viz` does not import with the installed scikit-learn |
+| Random and contact everyone on the holdout | Use the holdout's overall difference as a reference point only | Paired differences need a reference on the same rows. The campaign effect stays the Phase 1 figure |
