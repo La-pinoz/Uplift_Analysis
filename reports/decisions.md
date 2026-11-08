@@ -818,7 +818,7 @@ The Spearman correlation is -0.131 pooled out-of-fold and -0.128 on the holdout,
 
 ## Phase 5 status
 
-**Stage 2: development results recorded.** The rules were committed in `202c311` before any targeting result existed. Out-of-fold results and the lock record are under "Phase 5 development results". No holdout score or holdout label has been loaded in Phase 5, and Stage 3 waits for the lock commit. Phase 5 asks whether ranking by `tau` finds more incremental purchasers than ranking by `m1`, in `notebooks/04_policy_evaluation.ipynb`, using the scores frozen in Phase 4. The models, features and scores are not changed.
+**Complete.** The rules were committed in `202c311` before any targeting result existed, and the analysis was locked in `8c468b5` before any holdout outcome was opened. Out-of-fold results are under "Phase 5 development results" and holdout results under "Phase 5 holdout results". Phase 5 asks whether ranking by `tau` finds more incremental purchasers than ranking by `m1`, in `notebooks/04_policy_evaluation.ipynb`, using the scores frozen in Phase 4. The models, features and scores are not changed.
 
 ## Rules for Phase 5
 
@@ -1122,7 +1122,7 @@ Means are in `disagreement_profile.csv`, and the chart is `outputs/figures/disag
 | 20% | 32,006 | 1,193 | 3.7% |
 | 30% | 48,009 | 7,042 | 14.7% |
 
-**How to read it:** these are model-defined groups, and no test between them was run. The two rankings choose almost entirely different customers at small budgets. The customers most likely to buy, who are frequent, recent and high-spending, already buy at about 84% without the SMS, and their observed uplift is small. That is consistent with response targeting falling below random targeting here, but it does not identify individual persuadable customers.
+**How to read it:** these are model-defined groups, and no test between them was run. The two rankings choose almost entirely different customers at small budgets. The customers most likely to buy, who are frequent, recent and high-spending, already buy at about 84% without the SMS, and their observed uplift is small. That is consistent with the negative response minus random estimates, which carry no conclusion, and it does not identify individual persuadable customers.
 
 ### RFM cut points
 
@@ -1157,3 +1157,105 @@ Every score comes from a model that did not train on that customer. These same r
 - **Code paths:** the shuffle check passes its orderings to `select_by_rank` through `uplift_at_k_by_rank`. The reported Uplift@K values come from `uplift_at_budgets`, and both paths must match scikit-uplift within 1e-12. `overall_difference` moved into `notebooks/targeting.py`, with the same input checks as Uplift@K.
 - **Holdout:** no holdout score or holdout label has been loaded in Phase 5. The Phase 4 freeze record, hash `b40d79c6...`, is unchanged.
 - **Lock commit:** the commit that adds this record. The project owner supplies its hash for `LOCK_COMMIT_SHA`, and Stage 3 prints it and records it with the results.
+
+## Phase 5 holdout results
+
+The first complete holdout run is the recorded result, from `notebooks/04_policy_evaluation.ipynb` after lock commit `8c468b5`. The notebook printed that hash, and `outputs/tables/primary_result.csv` records it. Holdout values are **Measured** on the 40,008 holdout customers. Segment effects are **Measured** on all 200,039 labelled customers. Causal readings depend on the assignment assumption: observed checks are consistent with random assignment, but randomisation is not documented.
+
+The same run first re-executed every Stage 2 cell with the code as reviewed. Every Stage 2 table matched the committed files by checksum, and every quoted development value matched, before any holdout cell ran.
+
+### Checks before any holdout outcome
+
+| Step | Result | Rule | Triggered |
+|---|---|---|---|
+| Guard | Lock record heading found; lock commit `8c468b5` printed | Stop if either is missing | No |
+| Freeze | The recorded hash matches | Proceed on a match | No |
+| Arm balance, SMD | `m1` -0.0036, `m0` -0.0026, `tau` -0.0044 | Stop at an absolute value of 0.05 | No |
+| Arm balance, SD ratio | `m1` 0.9983, `m0` 0.9981, `tau` 1.0234 | Stop outside 0.9 to 1.1 | No |
+| Treated share of the top 20% | `m1` 49.45%, `tau` 49.64% | Stop outside 48% to 52% | No |
+| Treated share at 5%, 10% and 30% | `m1` 49.35%, 49.41%, 49.91%; `tau` 50.50%, 50.04%, 50.02% | Within ±3.91, ±2.77 and ±1.60 points of 50% | No |
+| Shuffle check | Largest gap 1.97 Monte Carlo standard errors, at 5% | Stop beyond 4 | No |
+| Match with scikit-uplift | Largest recorded difference 0.0, for `uplift_at_k_by_rank`. The reported values from `uplift_at_budgets` also passed the 1e-12 check, but their differences were not recorded | Stop above 1e-12 | No |
+
+### Primary result
+
+| Item | Value |
+|---|---:|
+| Uplift@20, uplift strategy | +6.26 points |
+| Uplift@20, response strategy | +1.21 points |
+| **Uplift minus response at 20%** | **+5.05 points** |
+| Paired 95% interval | +2.55 to +7.34 points |
+| Incremental purchasers per 100,000 customers | +1,010 (+510 to +1,467) |
+
+**Conclusion under the decision rule:** the paired interval is entirely above zero, so **uplift targeting performed better at the 20% budget**. H0 is rejected at the pre-set level, a one-sided 2.5% test. The interval is about ±2.4 points wide, a little narrower than the ±3 points estimated before any result, consistent with the low list overlap.
+
+### Uplift@K by strategy
+
+Secondary, or exploratory at 5%. In points, with 95% intervals. Random is the expected value of random targeting, and its interval leaves out the noise of a single random draw. On these rows, Random and contact everyone use the holdout's overall difference only as the reference point for strategies. The campaign effect remains the Phase 1 difference on all 200,039 customers.
+
+| Budget | Random | Response | Uplift |
+|---:|---:|---:|---:|
+| 5% (exploratory) | +3.32 (+2.32 to +4.27) | +0.54 (-0.63 to +1.89) | +16.24 (+11.87 to +20.39) |
+| 10% | +3.32 (+2.32 to +4.27) | +0.61 (-0.63 to +1.79) | +11.02 (+7.81 to +13.98) |
+| 20% | +3.32 (+2.32 to +4.27) | +1.21 (+0.10 to +2.40) | +6.26 (+3.99 to +8.35) |
+| 30% | +3.32 (+2.32 to +4.27) | +1.36 (+0.23 to +2.43) | +4.75 (+2.94 to +6.50) |
+
+### Paired differences
+
+In points, with paired 95% intervals. Incremental purchasers per 100,000 customers are in brackets.
+
+| Budget | Uplift minus response | Uplift minus random | Response minus random |
+|---:|---:|---:|---:|
+| 5% (exploratory) | +15.70 (+11.18 to +20.04) [+785] | +12.92 (+8.79 to +16.95) [+646] | -2.78 (-4.20 to -1.17) [-139] |
+| 10% | +10.41 (+6.88 to +13.51) [+1,041] | +7.70 (+4.68 to +10.43) [+770] | -2.71 (-4.21 to -1.29) [-271] |
+| 20% | **+5.05 (+2.55 to +7.34) [+1,010], primary** | +2.94 (+0.89 to +4.82) [+587] | -2.11 (-3.39 to -0.76) [-423] |
+| 30% | +3.39 (+1.33 to +5.31) [+1,016] | +1.42 (-0.11 to +2.87) [+426] | -1.96 (-3.17 to -0.80) [-589] |
+
+### Qini and AUUC
+
+| Metric | Response | Uplift | Uplift minus response |
+|---|---:|---:|---:|
+| Qini coefficient | -0.0065 (-0.0124 to -0.0004) | +0.0069 (-0.000003 to +0.0131) | +0.0134 (+0.0037 to +0.0218) |
+| AUUC | -0.0100 (-0.0193 to -0.0004) | +0.0108 (+0.0002 to +0.0204) | +0.0209 (+0.0056 to +0.0338) |
+
+The chart is `outputs/figures/holdout_qini_uplift_curves.png`.
+
+### Agreement with the out-of-fold view
+
+| Comparison | Out-of-fold | Holdout |
+|---|---:|---:|
+| Uplift minus response at 20% | +5.67 (+4.46 to +6.92) | +5.05 (+2.55 to +7.34) |
+| Uplift Uplift@20 | +7.12 | +6.26 |
+| Response Uplift@20 | +1.45 | +1.21 |
+| Uplift minus random at 30% | +2.55 (+1.77 to +3.28) | +1.42 (-0.11 to +2.87) |
+| Uplift Qini coefficient | +0.0131 (+0.0099 to +0.0165) | +0.0069 (-0.000003 to +0.0131) |
+
+The two views agree in direction on every uplift minus response comparison. These are the disagreements:
+- On the holdout, uplift minus random at 30% has an interval that includes zero.
+- The holdout Qini interval for the uplift strategy includes zero, with a lower end of -0.000003.
+- The exploratory 5% results are larger on the holdout, with wide intervals.
+
+The holdout has a quarter of the rows, so its intervals are about twice as wide.
+
+### RFM segment effects
+
+All 200,039 labelled customers, with the development cut points from the lock record. The Wald intervals are unadjusted. "Significant" means a Benjamini-Hochberg adjusted p-value below 0.05.
+
+| Segment | Customers | Treated rate | Control rate | Difference, unadjusted 95% CI | BH-adjusted p | Significant |
+|---|---:|---:|---:|---:|---:|---|
+| 1. Recent, lower F and M | 27,843 | 67.35% | 63.17% | +4.18 (+3.06 to +5.30) | 4.9e-13 | Yes |
+| 2. Recent, higher F and M | 48,222 | 88.37% | 87.04% | +1.33 (+0.74 to +1.91) | 1.4e-05 | Yes |
+| 3. Moderately recent, lower F and M | 36,640 | 53.77% | 49.42% | +4.34 (+3.32 to +5.36) | 2.7e-16 | Yes |
+| 4. Moderately recent, higher F and M | 22,564 | 78.54% | 76.81% | +1.72 (+0.64 to +2.81) | 0.0019 | Yes |
+| 5. Least recent, lower F and M | 53,259 | 39.93% | 35.91% | +4.02 (+3.19 to +4.84) | 7.6e-21 | Yes |
+| 6. Least recent, higher F and M | 11,511 | 61.84% | 58.40% | +3.45 (+1.66 to +5.23) | 0.00019 | Yes |
+
+All six segments show a positive difference after correction. The two lowest are the recent and moderately recent segments with higher frequency and monetary value, whose control customers already buy at 77% to 87%. A significant effect within one segment does not show that it differs from the other segments, and no test between segments was run. The chart is `outputs/figures/rfm_segment_effects.png`.
+
+### What Phase 5 does not show
+
+- **Value:** the unit is incremental purchasers, not revenue or margin, for an outcome window that is undocumented.
+- **Individuals:** the results do not identify individual persuadable customers. They compare targeting rules on groups.
+- **Model uncertainty:** the intervals cover the evaluation sample only, not refitting the models.
+- **Other budgets:** only the 20% comparison carries a conclusion. The others are secondary or exploratory.
+- **Population:** the results apply to the labelled cohort only.

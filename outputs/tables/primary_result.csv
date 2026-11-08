@@ -1,0 +1,2 @@
+lock_commit,freeze_check,comparison,budget_pct,difference_pts,ci_low_pts,ci_high_pts,per_100k,per_100k_ci_low,per_100k_ci_high,conclusion
+8c468b5,proceed,Uplift minus Response,20,5.050013473391307,2.549926577137963,7.336918461593118,1010.0026946782614,509.9853154275925,1467.3836923186236,Uplift targeting performed better at the 20% budget
